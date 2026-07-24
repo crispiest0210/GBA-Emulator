@@ -1,64 +1,158 @@
-# Game Boy Advance Emulator Control Center
+# GBA Emulator
 
-A modern, high-performance **Game Boy Advance (GBA) Emulator Dashboard** desktop application built on top of **Tauri v2**, **Rust**, **React 19**, and **TypeScript**. 
+A desktop Game Boy Advance emulator dashboard built with **Tauri v2**, **Rust**, **React 19**, **TypeScript**, and **Vite**.
 
-This application provides a sleek management hub for importing, launching, and managing Game Boy Advance ROM libraries and real-time cartridge save checkpoints persistently on disk.
+The app combines a native desktop shell with a browser-based emulation core, giving you a polished UI for importing ROMs, launching gameplay, managing saves, tuning controls, and packaging the project as a desktop application.
 
----
+## Overview
 
-## 🎮 Core Capabilities
+- **Frontend**: React 19 + TypeScript + Vite
+- **Backend**: Tauri v2 + Rust 2021
+- **Emulation core**: Vendored `IodineGBA` running in the frontend
+- **Desktop target**: Linux-first Tauri desktop app with cross-platform setup notes
+- **Identifier**: `com.gba.emulator`
 
-- **Integrated Emulation Engine**: Runs a fully integrated **IodineGBA** emulation core directly inside the desktop window wrapper.
-- **Pixel-Perfect Video rendering**: Frames are pushed on every VSync to a hardware-accelerated GBA 240x160 viewport using custom graphics blitting.
-- **Full Stereo Audio**: Game sound is mixed and played in real-time through the Web Audio API.
-- **Intelligent File Picker & Drag-and-Drop**: Easily import ROMs via native file dialogs or by dragging a `.gba` file directly into the application window.
-- **Persistent Saved Game Checkpoints**:
-  - **In-Game Cartridge Saves**: Standard diary saves (such as saving inside a Pokémon game menu) are persistently saved to browser local storage.
-  - **Custom State Checkpoints**: Capture and restore the live running VM cartridge memory state as separate disk-backed checkpoint files under `saves/<rom_id>/` at any point!
+## Features
 
----
+- **Native ROM import**
+  - Pick `.gba` files with the Tauri file dialog.
+  - Drag and drop ROMs directly into the window.
+  - Frontend validation rejects invalid file types before import.
 
-## 🕹️ Keyboard Controls
+- **Integrated gameplay surface**
+  - Renders the GBA framebuffer to a scaled in-app canvas.
+  - Streams audio through the Web Audio API.
+  - Loads ROM bytes from Rust into the frontend as raw byte arrays.
 
-During gameplay, the emulator coordinates the following desktop keyboard mappings to the original GBA buttons:
+- **ROM library management**
+  - Add ROMs from local disk.
+  - Remove ROMs from the in-memory library.
+  - Track `lastPlayedAt` when launching a ROM.
 
-| Keyboard Key | GBA Controller Button |
-|---|---|
-| **Arrow Keys** (↑ ↓ ← →) | Directional D-Pad |
-| **X** | **A** Button |
-| **Z** | **B** Button |
-| **Enter** | **Start** |
-| **Shift** | **Select** |
-| **A** | **L** Trigger |
-| **S** | **R** Trigger |
+- **Save systems**
+  - Cartridge save data is synchronized through frontend storage for live game saves.
+  - Save checkpoints are stored on disk under `saves/<rom_id>/` as `.state` files.
+  - Saves can be listed, loaded, and rewound from the dashboard.
 
----
+- **Player controls**
+  - Adjustable keybinds persisted in `localStorage`.
+  - Volume and mute controls persisted in `localStorage`.
+  - Fast-forward, rewind, quick save, and quick load flows are integrated into the UI.
 
-## 📦 Project Structure
+## Default Controls
 
-The project divides its workloads into a secure Rust backend shell and a sandboxed high-performance React frontend:
+The app exposes configurable keybinds, but the default layout is:
 
-- `src/App.tsx` — Main React dashboard interface, managing canvas frame rendering, game controls, and keyboard dispatching.
-- `src/App.css` — Modern dark dashboard styling.
-- `src-tauri/src/lib.rs` — Rust application backend, storing in-memory ROM/Save indexes, reading files from disk, and streaming bytes to the frontend.
-- `src-tauri/tauri.conf.json` — Tauri native build configurations and system permission capabilities.
-- `public/IodineGBA/` — Vendored IodineGBA emulator core source modules.
-- `public/user_scripts/` — Audio and canvas blitting bridges.
+| Keyboard key | GBA action |
+| --- | --- |
+| `W` `A` `S` `D` | D-pad |
+| `Space` | A |
+| `R` | B |
+| `Tab` | Start |
+| `` ` `` | Select |
+| `/` | L |
+| `Left Shift` | R |
+| `1` | Quick save |
+| `4` | Quick load |
+| `P` | Fast forward |
+| `O` | Rewind |
 
----
+## Architecture
 
-## 🛠️ Installation and Setup
+The project is split into a React frontend and a small Rust backend:
 
-For step-by-step instructions on setting up compilers, system developer dependencies, and running/compiling the application for **Windows**, **macOS**, and **Linux**, please refer to:
+- `src/App.tsx`
+  - Main UI and emulator orchestration.
+  - Handles file picking, drag and drop, keyboard input, audio state, save actions, and Tauri command calls.
 
-👉 **[SETUP.md](./SETUP.md)**
+- `src/App.css`
+  - Dashboard layout and emulator presentation styling.
 
----
+- `src-tauri/src/lib.rs`
+  - Owns in-memory ROM metadata, emulator session state, and save metadata.
+  - Exposes Tauri commands for ROM and save operations.
 
-## 🔬 How the Backend Behaves
+- `src-tauri/tauri.conf.json`
+  - Desktop metadata, bundle targets, and frontend build hooks.
 
-The Rust backend in `src-tauri/src/lib.rs` maintains the collection of ROM metadata, active emulator sessions, and save state records:
-- **Streaming**: ROMs are loaded dynamically by streaming their binary bytes from your local disk into the frontend on demand.
-- **Integrity**: Deleting a loaded ROM automatically resets the emulator state and removes its associated state checkpoints on disk to maintain metadata integrity.
-- **Disk Persistence**: Checkpoints are backed up as raw binary files (`.state`) on your local drive, making them persistent across computer reboots.
+- `public/IodineGBA/`
+  - Vendored emulator core.
 
+- `public/user_scripts/`
+  - Glue code for rendering and audio integration.
+
+## Tauri Commands
+
+The backend exposes these commands through `tauri::generate_handler!`:
+
+1. `get_dashboard_state`
+2. `list_roms`
+3. `add_rom`
+4. `remove_rom`
+5. `get_emulator_state`
+6. `read_rom_file`
+7. `load_rom`
+8. `pause_emulator`
+9. `resume_emulator`
+10. `stop_emulator`
+11. `save_state`
+12. `read_save_file`
+13. `load_state`
+14. `list_saves`
+
+## Current Behavior Notes
+
+- **Backend persistence model**
+  - Library and emulator session metadata are in-memory only.
+  - Restarting the app resets the backend state.
+
+- **ROM loading**
+  - ROM metadata is derived from the selected local file path.
+  - ROM bytes are returned from Rust as raw `Vec<u8>` data and consumed in the frontend.
+
+- **Save behavior**
+  - Loading a ROM sets the emulator session to `Running`.
+  - Loading a save sets the session to `Paused` with the save's ROM loaded.
+  - Removing the currently loaded ROM resets the session and removes related saves.
+
+## Development Commands
+
+Use either the npm scripts or the helper shell script:
+
+```bash
+npm install
+npm run dev
+npm run build
+```
+
+```bash
+./run.sh dev
+./run.sh build
+./run.sh clean
+```
+
+On this project, `run.sh` exports the local `PKG_CONFIG_PATH`, `LIBRARY_PATH`, and `LD_LIBRARY_PATH` values needed for the Linux compatibility shims in `pkgconfig/` and `lib/`.
+
+## Setup
+
+For full environment setup and platform notes, see:
+
+- `SETUP.md`
+
+## Testing Status
+
+- No automated test suite is currently configured.
+- `package.json` does not define an `npm test` script.
+- There are no Rust test modules or integration tests under `src-tauri`.
+
+## Known Constraints
+
+- The backend library index is not persisted across restarts.
+- Save checkpoints are persisted to disk, but ROM library metadata is not.
+- The current implementation is optimized for local desktop usage rather than headless automation.
+
+## Next Recommended Improvements
+
+- Add automated frontend and Rust tests.
+- Persist the ROM library index using SQLite or a file-backed store.
+- Continue refining emulator UX, diagnostics, and recovery flows.

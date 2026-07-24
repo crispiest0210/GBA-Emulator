@@ -4,8 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "PKG_CONFIG_PATH=\"$PWD/pkgconfig:$PKG_CONFIG_PATH\" LIBRARY_PATH=\"$PWD/lib:$LIBRARY_PATH\" LD_LIBRARY_PATH=\"$PWD/lib:$LD_LIBRARY_PATH\" tauri dev",
+    "build": "PKG_CONFIG_PATH=\"$PWD/pkgconfig:$PKG_CONFIG_PATH\" LIBRARY_PATH=\"$PWD/lib:$LIBRARY_PATH\" LD_LIBRARY_PATH=\"$PWD/lib:$LD_LIBRARY_PATH\" tauri build",
+    "dev:frontend": "vite",
+    "build:frontend": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },

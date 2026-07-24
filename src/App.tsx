@@ -148,7 +148,6 @@ function getErrorMessage(error: unknown) {
 function App() {
   const [roms, setRoms] = useState<RomMetadata[]>([]);
   const [saves, setSaves] = useState<SaveEntry[]>([]);
-  const [visibleSaves, setVisibleSaves] = useState<SaveEntry[]>([]);
   const [emulator, setEmulator] = useState<EmulatorSession>(initialEmulator);
   const [saveLabel, setSaveLabel] = useState("");
   const [saveFilter, setSaveFilter] = useState<string>("all");
@@ -180,8 +179,6 @@ function App() {
   const timerIdRef = useRef<any>(null);
   const startTimeRef = useRef<number>(Date.now());
   const activeRomIdRef = useRef<string | null>(null);
-  const timerLogCountRef = useRef<number>(0);
-  const frameLogCountRef = useRef<number>(0);
 
   const activeRom = useMemo(
     () => roms.find((rom) => rom.id === emulator.loadedRomId) ?? null,
@@ -193,26 +190,22 @@ function App() {
     [roms],
   );
 
-  useEffect(() => {
-    setVisibleSaves(saveFilter === "all" ? saves : saves.filter((save) => save.romId === saveFilter));
-  }, [saveFilter, saves]);
+  const visibleSaves = useMemo(
+    () => (saveFilter === "all" ? saves : saves.filter((save) => save.romId === saveFilter)),
+    [saveFilter, saves],
+  );
 
   useEffect(() => {
     const initInterval = setInterval(() => {
       if (window.GameBoyAdvanceEmulator && window.GfxGlueCode && canvasRef.current) {
         clearInterval(initInterval);
-        
-        console.log("React: Instantiating GameBoyAdvanceEmulator core...");
+
         const iodine = new window.GameBoyAdvanceEmulator();
         const blitter = new window.GfxGlueCode(240, 160);
-        const originalInitializeCore = iodine.initializeCore?.bind(iodine);
-        const originalPlay = iodine.play?.bind(iodine);
-        const originalTimerCallback = iodine.timerCallback?.bind(iodine);
-        const originalCopyBuffer = blitter.copyBuffer?.bind(blitter);
-        
+
         // Force high-level BIOS emulation (HLE) to skip boot and launch games immediately
         iodine.toggleSkipBootROM(true);
-        
+
         // Attach a 16KB dummy BIOS array initially to satisfy immediate initialization checks
         const dummyBios = new Uint8Array(16384);
         iodine.attachBIOS(dummyBios);
@@ -224,104 +217,50 @@ function App() {
             const realBios = new Uint8Array(buffer);
             if (realBios.length === 16384) {
               iodine.attachBIOS(realBios);
-              console.log("React: Authentic GBA BIOS successfully attached!");
-            } else {
-              console.error("React: Loaded GBA BIOS has invalid size", realBios.length);
             }
           })
-          .catch((err) => {
-            console.error("React: Failed to load GBA BIOS. Falling back to dummy BIOS.", err);
+          .catch(() => {
           });
-        
+
         // Configure standard execution timer rates (runs standard cycles per tick)
         iodine.setIntervalRate(8);
-        
+
         blitter.attachCanvas(canvasRef.current);
-        blitter.copyBuffer = (buffer: Uint8Array) => {
-          if (frameLogCountRef.current < 5) {
-            console.log("React: Received frame buffer", {
-              length: buffer?.length,
-              sample: Array.from(buffer?.slice?.(0, 12) ?? []),
-            });
-            frameLogCountRef.current += 1;
-          }
-          return originalCopyBuffer?.(buffer);
-        };
         iodine.attachGraphicsFrameHandler(blitter);
-        iodine.initializeCore = () => {
-          const result = originalInitializeCore ? originalInitializeCore() : 0;
-          console.log("React: initializeCore() completed", {
-            result,
-            emulatorStatus: iodine.emulatorStatus,
-            hasIOCore: Boolean(iodine.IOCore),
-          });
-          return result;
-        };
-        iodine.play = () => {
-          console.log("React: play() invoked", {
-            emulatorStatusBefore: iodine.emulatorStatus,
-            hasBIOS: Boolean(iodine.BIOS),
-            biosLength: iodine.BIOS?.length,
-            hasROM: Boolean(iodine.ROM),
-            romLength: iodine.ROM?.length,
-          });
-          const result = originalPlay ? originalPlay() : undefined;
-          console.log("React: play() completed", {
-            emulatorStatusAfter: iodine.emulatorStatus,
-            hasIOCore: Boolean(iodine.IOCore),
-          });
-          return result;
-        };
-        iodine.timerCallback = (lastTimestamp: number) => {
-          if (timerLogCountRef.current < 8) {
-            console.log("React: timerCallback() tick", {
-              lastTimestamp,
-              emulatorStatus: iodine.emulatorStatus,
-              hasIOCore: Boolean(iodine.IOCore),
-            });
-            timerLogCountRef.current += 1;
-          }
-          return originalTimerCallback?.(lastTimestamp);
-        };
-        
+
         // Attach a play status handler to prevent silent null-pointer crashes inside the play() / pause() core methods
-        iodine.attachPlayStatusHandler((status: number) => {
-          console.log("React: Emulator play status changed to: ", status);
+        iodine.attachPlayStatusHandler(() => {
         });
-        
+
         // Link to global IodineGUI pointers so helper subsystems can communicate
         if (window.IodineGUI) {
           window.IodineGUI.Iodine = iodine;
           window.IodineGUI.Blitter = blitter;
         }
-        
+
         if (window.GlueCodeMixer && window.GlueCodeMixerInput) {
           try {
             const mixer = new window.GlueCodeMixer();
             const mixerInput = new window.GlueCodeMixerInput(mixer);
             iodine.attachAudioHandler(mixerInput);
             iodine.enableAudio(); // Enable the audio engine inside GBA core!
-            console.log("React: Audio mixer attached and GBA audio core enabled!");
           } catch (e) {
-            console.warn("React: Audio mixer failed to register:", e);
           }
         }
-        
+
         iodine.attachSaveImportHandler((name: string, callback: any, callbackNoSave: any) => {
           const save = localStorage.getItem("SAVE_" + name);
           if (save) {
-            console.log("React: Loading battery save from local storage for: ", name);
             callback(window.base64ToArray(save));
           } else {
             callbackNoSave();
           }
         });
-        
+
         iodine.attachSaveExportHandler((name: string, saveBytes: number[]) => {
           if (name) {
             const base64Str = window.arrayToBase64(saveBytes);
             localStorage.setItem("SAVE_" + name, base64Str);
-            console.log("React: Saved game inside cartridge: ", name);
           }
         });
         
@@ -351,8 +290,7 @@ function App() {
     if (iodineInstance?.audio?.mixer?.audio) {
       try {
         iodineInstance.audio.mixer.audio.changeVolume(activeVolume);
-      } catch (e) {
-        console.warn("React: Failed to set volume on active mixer:", e);
+      } catch {
       }
     }
     
@@ -364,9 +302,8 @@ function App() {
   useEffect(() => {
     const resumeAudio = () => {
       if (window.XAudioJSWebAudioContextHandle && window.XAudioJSWebAudioContextHandle.state === "suspended") {
-        window.XAudioJSWebAudioContextHandle.resume()
-          .then(() => console.log("React: Web Audio Context resumed on gesture!"))
-          .catch((err: any) => console.warn("React: Failed to resume AudioContext:", err));
+        void window.XAudioJSWebAudioContextHandle.resume().catch(() => {
+        });
       }
     };
 
@@ -588,25 +525,13 @@ function App() {
       
       if (emulator.loadedRomId) {
         if (activeRomIdRef.current !== emulator.loadedRomId) {
-          console.log("React: Loading ROM binary for ID: ", emulator.loadedRomId);
           try {
-            const base64Str = await invoke<string>("read_rom_file", { romId: emulator.loadedRomId });
+            const romBytes = await invoke<number[]>("read_rom_file", { romId: emulator.loadedRomId });
             if (!isCurrent) return;
             
-            const romArray = new Uint8Array(window.base64ToArray(base64Str));
-            console.log("React: Decoded ROM payload", {
-              base64Length: base64Str.length,
-              romLength: romArray.length,
-              headerSample: Array.from(romArray.slice(0, 16)),
-              titleSample: String.fromCharCode(...Array.from(romArray.slice(0xa0, 0xac))),
-            });
+            const romArray = new Uint8Array(romBytes);
             iodine.attachROM(romArray);
-            console.log("React: attachROM() completed", {
-              emulatorStatus: iodine.emulatorStatus,
-              attachedRomLength: iodine.ROM?.length,
-            });
             activeRomIdRef.current = emulator.loadedRomId;
-            console.log("React: Cartridge inserted!");
           } catch (err) {
             setFlash({ tone: "error", text: getErrorMessage(err) });
             return;
@@ -615,9 +540,6 @@ function App() {
         
         if (emulator.status === "running") {
           if (!isPlayingRef.current) {
-            console.log("React: Starting execution loop...");
-            timerLogCountRef.current = 0;
-            frameLogCountRef.current = 0;
             iodine.play();
             startTimeRef.current = Date.now();
             isPlayingRef.current = true;
@@ -630,7 +552,6 @@ function App() {
           }
         } else if (emulator.status === "paused") {
           if (isPlayingRef.current) {
-            console.log("React: Pausing execution loop...");
             if (timerIdRef.current) {
               clearInterval(timerIdRef.current);
               timerIdRef.current = null;
@@ -641,7 +562,6 @@ function App() {
         }
       } else {
         if (isPlayingRef.current || activeRomIdRef.current !== null) {
-          console.log("React: Stopping emulator core...");
           if (timerIdRef.current) {
             clearInterval(timerIdRef.current);
             timerIdRef.current = null;
@@ -921,7 +841,7 @@ function App() {
           romId: saveFilter === "all" ? null : saveFilter,
         }),
       (nextSaves) => {
-        setVisibleSaves(nextSaves);
+        setSaves(nextSaves);
       },
       saveFilter === "all" ? "Showing all save states." : "Showing saves for the selected ROM.",
     );

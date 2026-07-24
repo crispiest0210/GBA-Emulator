@@ -7,7 +7,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::State;
-use base64::{Engine as _, engine::general_purpose};
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -232,7 +231,7 @@ fn get_emulator_state(state: State<'_, AppState>) -> Result<EmulatorSession, Str
 }
 
 #[tauri::command]
-fn read_rom_file(rom_id: String, state: State<'_, AppState>) -> Result<String, String> {
+fn read_rom_file(rom_id: String, state: State<'_, AppState>) -> Result<Vec<u8>, String> {
     let backend = state.backend.lock().map_err(|err| err.to_string())?;
     let rom = backend
         .roms
@@ -240,8 +239,7 @@ fn read_rom_file(rom_id: String, state: State<'_, AppState>) -> Result<String, S
         .find(|rom| rom.id == rom_id)
         .ok_or_else(|| "ROM not found".to_string())?;
 
-    let bytes = fs::read(&rom.file_path).map_err(|err| format!("Failed to read ROM file: {}", err))?;
-    Ok(general_purpose::STANDARD.encode(bytes))
+    fs::read(&rom.file_path).map_err(|err| format!("Failed to read ROM file: {}", err))
 }
 
 #[tauri::command]
