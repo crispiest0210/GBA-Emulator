@@ -1,0 +1,12 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=/usr/lib64
+includedir=${prefix}/include
+revision=tarball
+
+Name: WebKitGTK
+Description: Web content engine for GTK (Spoofed)
+Version: 2.52.5
+Requires: glib-2.0 gtk+-3.0 libsoup-3.0 javascriptcoregtk-4.1
+Libs: -L${libdir} -lwebkit2gtk-4.0
+Cflags: -I${includedir}/webkitgtk-4.0
