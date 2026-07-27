@@ -343,7 +343,10 @@ function App() {
       "Quick saving checkpoint",
       () => invoke<SaveEntry>("save_state", { label: "Quick Save Checkpoint", saveData: saveArray }),
       async () => {
-        await refreshDashboard();
+        const nextSaves = await invoke<SaveEntry[]>("list_saves", {
+          romId: saveFilter === "all" ? null : saveFilter,
+        });
+        setSaves(nextSaves);
         setFlash({ tone: "success", text: "Quick Save Created! 💾" });
         setTimeout(() => setFlash(null), 2000);
       }
@@ -857,10 +860,40 @@ function App() {
       "Loading save state",
       async () => {
         const saveBytes = await invoke<number[]>("read_save_file", { saveId });
+        const pausedSession = await invoke<EmulatorSession>("load_state", { saveId });
+
+        if (!pausedSession.loadedRomId) {
+          throw new Error("Save state is missing an associated ROM.");
+        }
+
+        if (isPlayingRef.current) {
+          if (timerIdRef.current) {
+            clearInterval(timerIdRef.current);
+            timerIdRef.current = null;
+          }
+          iodineRef.current.pause();
+          isPlayingRef.current = false;
+        }
+
+        if (window.IodineGUI && window.IodineGUI.Blitter && canvasRef.current) {
+          window.IodineGUI.Blitter.attachCanvas(canvasRef.current);
+        }
+
+        const romBytes = await invoke<number[]>("read_rom_file", { romId: pausedSession.loadedRomId });
+        const romArray = new Uint8Array(romBytes);
         const convertedSave = new Uint8Array(saveBytes);
+
+        iodineRef.current.attachROM(romArray);
+        activeRomIdRef.current = pausedSession.loadedRomId;
         iodineRef.current.IOCore.saves.importSave(convertedSave, 0);
 
-        return invoke<EmulatorSession>("load_state", { saveId });
+        const gameName = iodineRef.current.getGameName();
+        if (gameName) {
+          const base64Str = window.arrayToBase64(saveBytes);
+          localStorage.setItem("SAVE_" + gameName, base64Str);
+        }
+
+        return invoke<EmulatorSession>("resume_emulator");
       },
       (session) => {
         setEmulator(session);
@@ -868,6 +901,22 @@ function App() {
       "Save state loaded into the emulator.",
     );
   }
+
+  const recentRoms = [...roms]
+    .sort((a, b) => {
+      const aTime = a.lastPlayedAt ? Date.parse(a.lastPlayedAt) : 0;
+      const bTime = b.lastPlayedAt ? Date.parse(b.lastPlayedAt) : 0;
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    })
+    .slice(0, 3);
+
+  const recentSaves = [...saves]
+    .sort((a, b) => {
+      const aTime = Date.parse(a.createdAt);
+      const bTime = Date.parse(b.createdAt);
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    })
+    .slice(0, 4);
 
   const isBusy = busyAction !== null;
 
@@ -913,7 +962,8 @@ function App() {
                   aspectRatio: "240/160",
                   imageRendering: "pixelated",
                   background: "#000",
-                  display: "block"
+                  display: "block",
+                  borderRadius: "12px 12px 68px 12px"
                 }}
               />
             </div>
@@ -1087,21 +1137,75 @@ function App() {
 
       {flash ? <div className={`flash ${flash.tone}`}>{flash.text}</div> : null}
 
-      <section className="stats-grid">
-        <article className="card stat-card">
-          <span className="stat-label">ROMs</span>
-          <strong>{roms.length}</strong>
-          <small>{formatBytes(totalStorage)} total storage</small>
+      <section className="stats-grid quick-resume-grid">
+        <article className="card panel quick-resume-card">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Last played ROMs</p>
+              <h2>Jump back into your favorites</h2>
+            </div>
+          </div>
+
+          <div className="list compact-list">
+            {recentRoms.length === 0 ? (
+              <div className="empty-state">Play a cartridge once and it will show up here for quick resume.</div>
+            ) : (
+              recentRoms.map((rom) => (
+                <div className="list-item" key={rom.id}>
+                  <div className="list-copy">
+                    <div className="title-row">
+                      <h3>{rom.title}</h3>
+                      {rom.favorite ? <span className="pill">Favorite</span> : null}
+                    </div>
+                    <p>{rom.fileName}</p>
+                    <small>Last played: {formatTimestamp(rom.lastPlayedAt)}</small>
+                  </div>
+                  <div className="item-actions">
+                    <button type="button" onClick={() => void handleLoadRom(rom.id)} disabled={isBusy}>
+                      Resume
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <small className="panel-footer-copy">Library storage: {formatBytes(totalStorage)}</small>
         </article>
-        <article className="card stat-card">
-          <span className="stat-label">Session</span>
-          <strong>{emulator.status}</strong>
-          <small>{emulator.loadedRomTitle ?? "No ROM loaded"}</small>
-        </article>
-        <article className="card stat-card">
-          <span className="stat-label">Save states</span>
-          <strong>{saves.length}</strong>
-          <small>{activeRom ? `Active ROM: ${activeRom.title}` : "Waiting for a loaded ROM"}</small>
+
+        <article className="card panel quick-resume-card">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Recent saves</p>
+              <h2>Restore your latest checkpoints</h2>
+            </div>
+          </div>
+
+          <div className="list compact-list">
+            {recentSaves.length === 0 ? (
+              <div className="empty-state">No save states yet. Create one in-game or from the save panel.</div>
+            ) : (
+              recentSaves.map((save) => (
+                <div className="list-item" key={save.id}>
+                  <div className="list-copy">
+                    <div className="title-row">
+                      <h3>{save.label}</h3>
+                      <span className="pill secondary">{save.kind}</span>
+                    </div>
+                    <p>{save.romTitle}</p>
+                    <small>{formatTimestamp(save.createdAt)}</small>
+                  </div>
+                  <div className="item-actions">
+                    <button type="button" onClick={() => void handleLoadSave(save.id)} disabled={isBusy}>
+                      Load save
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <small className="panel-footer-copy">{activeRom ? `Current focus: ${activeRom.title}` : "No ROM is currently active."}</small>
         </article>
       </section>
 
@@ -1154,62 +1258,6 @@ function App() {
                 </div>
               ))
             )}
-          </div>
-        </article>
-
-        <article className="card panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Emulator session</p>
-              <h2>Runtime controls</h2>
-            </div>
-            <button type="button" onClick={() => void handleRefreshEmulator()} disabled={isBusy}>
-              Refresh session
-            </button>
-          </div>
-
-          <div className="session-card">
-            <div className="status-row">
-              <span className={`status-dot ${emulator.status.toLowerCase()}`} />
-              <strong>{emulator.status}</strong>
-            </div>
-
-            <div className="emulator-screen-container" style={{ margin: "1rem 0", background: "#0d1424", border: "4px solid #41557d", overflow: "hidden", display: "flex", justifyContent: "center", alignItems: "center", aspectRatio: "240/160", width: "100%", height: "200px" }}>
-              <div style={{ color: "#8fa5c7", fontSize: "0.6rem", textTransform: "uppercase", fontFamily: "'Press Start 2P', monospace", textAlign: "center", padding: "1rem", lineHeight: "1.6" }}>
-                No active game.<br />Load a ROM to play!
-              </div>
-            </div>
-
-            <dl className="details-grid">
-              <div>
-                <dt>Loaded ROM</dt>
-                <dd>{emulator.loadedRomTitle ?? "Nothing loaded"}</dd>
-              </div>
-              <div>
-                <dt>FPS target</dt>
-                <dd>{emulator.fpsTarget}</dd>
-              </div>
-              <div>
-                <dt>Audio</dt>
-                <dd>{emulator.audioEnabled ? "Enabled" : "Muted"}</dd>
-              </div>
-              <div>
-                <dt>Fast forward</dt>
-                <dd>{emulator.fastForward ? "On" : "Off"}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="control-row">
-            <button type="button" onClick={() => void handlePause()} disabled={isBusy}>
-              Pause
-            </button>
-            <button type="button" onClick={() => void handleResume()} disabled={isBusy}>
-              Resume
-            </button>
-            <button type="button" onClick={() => void handleStop()} disabled={isBusy}>
-              Stop
-            </button>
           </div>
         </article>
 

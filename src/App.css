@@ -287,6 +287,10 @@ option {
   margin-bottom: 8px;
 }
 
+.quick-resume-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .stat-card {
   padding: 16px;
   display: flex;
@@ -317,6 +321,20 @@ option {
   display: grid;
   gap: 24px;
   grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
+}
+
+.quick-resume-card {
+  margin-bottom: 0;
+}
+
+.compact-list {
+  gap: 14px;
+}
+
+.panel-footer-copy {
+  display: block;
+  margin-top: 14px;
+  color: #8fa5c7;
 }
 
 .panel {
@@ -542,9 +560,10 @@ option {
 .gba-screen-bezel {
   background: #23252d; /* Dark bezel */
   border: 6px solid #4a4d56;
-  border-radius: 8px;
+  border-radius: 18px 18px 74px 18px;
   padding: 20px 24px;
   position: relative;
+  overflow: hidden;
   box-shadow: inset 0px 0px 16px rgba(0,0,0,0.8);
 }
 
