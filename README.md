@@ -18,6 +18,7 @@ The app combines a native desktop shell with a browser-based emulation core, giv
   - Pick `.gba` files with the Tauri file dialog.
   - Drag and drop ROMs directly into the window.
   - Frontend validation rejects invalid file types before import.
+  - Automatically imports and copies `.gba` files into a persistent local `roms/` library folder.
 
 - **Integrated gameplay surface**
   - Renders the GBA framebuffer to a scaled in-app canvas.
@@ -25,14 +26,17 @@ The app combines a native desktop shell with a browser-based emulation core, giv
   - Loads ROM bytes from Rust into the frontend as raw byte arrays.
 
 - **ROM library management**
-  - Add ROMs from local disk.
-  - Remove ROMs from the in-memory library.
+  - Add ROMs from local disk, which are copied and preserved in the repository's local `roms/` library folder.
+  - Automatically auto-scans and loads all ROMs present inside `roms/` on startup.
+  - Remove ROMs from the library and delete their physical files and folders from disk.
   - Track `lastPlayedAt` when launching a ROM.
 
 - **Save systems**
   - Cartridge save data is synchronized through frontend storage for live game saves.
+  - Save checkpoints are true, frame-accurate GBA hardware snapshots (fully serializing the CPU registers, ARM/THUMB execution states, WRAM/IRAM, background renderers, sprite OAM lists, palettes, sound levels, and cartridge save-chips).
   - Save checkpoints are stored on disk under `saves/<rom_id>/` as `.state` files.
-  - Saves can be listed, loaded, and rewound from the dashboard.
+  - Automatically auto-scans and lists all saves present inside `saves/` on startup.
+  - Saves can be listed, loaded instantly on the exact frame, and permanently deleted from both the UI and physical disk.
 
 - **Player controls**
   - Adjustable keybinds persisted in `localStorage`.
@@ -89,31 +93,33 @@ The backend exposes these commands through `tauri::generate_handler!`:
 2. `list_roms`
 3. `add_rom`
 4. `remove_rom`
-5. `get_emulator_state`
-6. `read_rom_file`
-7. `load_rom`
-8. `pause_emulator`
-9. `resume_emulator`
-10. `stop_emulator`
-11. `save_state`
-12. `read_save_file`
-13. `load_state`
-14. `list_saves`
+5. `remove_save`
+6. `get_emulator_state`
+7. `read_rom_file`
+8. `load_rom`
+9. `pause_emulator`
+10. `resume_emulator`
+11. `stop_emulator`
+12. `save_state`
+13. `read_save_file`
+14. `load_state`
+15. `list_saves`
+16. `log_message`
 
 ## Current Behavior Notes
 
 - **Backend persistence model**
-  - Library and emulator session metadata are in-memory only.
-  - Restarting the app resets the backend state.
+  - Library ROMs and saves are scanned and reconstructed dynamically on application startup from local folders (`roms/` and `saves/`).
+  - Active emulator session metadata remains in-memory only.
 
 - **ROM loading**
-  - ROM metadata is derived from the selected local file path.
+  - ROM metadata is derived from the copied local file path under the persistent local library.
   - ROM bytes are returned from Rust as raw `Vec<u8>` data and consumed in the frontend.
 
 - **Save behavior**
   - Loading a ROM sets the emulator session to `Running`.
   - Loading a save sets the session to `Paused` with the save's ROM loaded.
-  - Removing the currently loaded ROM resets the session and removes related saves.
+  - Removing a ROM also resets the session, deletes its files, and cleans up its saves directory from disk.
 
 ## Development Commands
 
@@ -147,12 +153,9 @@ For full environment setup and platform notes, see:
 
 ## Known Constraints
 
-- The backend library index is not persisted across restarts.
-- Save checkpoints are persisted to disk, but ROM library metadata is not.
 - The current implementation is optimized for local desktop usage rather than headless automation.
 
 ## Next Recommended Improvements
 
 - Add automated frontend and Rust tests.
-- Persist the ROM library index using SQLite or a file-backed store.
 - Continue refining emulator UX, diagnostics, and recovery flows.
