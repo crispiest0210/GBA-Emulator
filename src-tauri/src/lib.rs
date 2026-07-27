@@ -578,6 +578,24 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle();
+
+            // Copy any pre-packaged ROMs from the repository "./roms/" directory to dynamic native roms_dir on startup
+            if let Ok((roms_dir, _)) = ensure_library_directories(app_handle) {
+                if let Ok(entries) = fs::read_dir("roms") {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("gba")) {
+                            if let Some(file_name) = path.file_name() {
+                                let dest_path = roms_dir.join(file_name);
+                                if !dest_path.exists() {
+                                    let _ = fs::copy(&path, &dest_path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let state = app_handle.state::<AppState>();
             let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
             if let Err(e) = scan_library(&mut backend, app_handle) {

@@ -27,4 +27,8 @@ dist-ssr
 saves/
 src-tauri/saves/
 roms/
+!roms/
+roms/*
+!roms/Pokemon - Emerald Version (USA, Europe).gba
+!roms/gba-audio-test.gba
 src-tauri/roms/
