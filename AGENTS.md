@@ -88,6 +88,7 @@ The Rust backend exposes 14 commands through `tauri::generate_handler!`:
 - Added a `log_message` Tauri command bridge to automatically forward all frontend JavaScript console logs, warnings, and unhandled errors straight to the desktop terminal for real-time debugging.
 - Added `**/saves/**` to the watch ignore list in `vite.config.ts` to prevent Vite from triggering full browser reloads during gameplay save-states.
 - Fixed all TypeScript compilation warnings and errors including unused methods and type casting on timestamps.
+- Designed and implemented true snapshot-based save state serialization (`exportGbaState` / `importGbaState`) on the `save-state-debugging` branch, capturing the full CPU, memory (WRAM/IRAM), GfxState (VRAM/OAM/palette), timers, DMAs, and cartridge-chip registers for instant frame-accurate quicksaving and quickloading.
 - Downloaded and configured the open-source `gba-audio-test.gba` test ROM for diagnostic bios-free emulator smoke testing.
 
 ## Handoff notes
