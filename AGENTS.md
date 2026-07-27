@@ -88,7 +88,10 @@ The Rust backend exposes 14 commands through `tauri::generate_handler!`:
 - Added a `log_message` Tauri command bridge to automatically forward all frontend JavaScript console logs, warnings, and unhandled errors straight to the desktop terminal for real-time debugging.
 - Added `**/saves/**` to the watch ignore list in `vite.config.ts` to prevent Vite from triggering full browser reloads during gameplay save-states.
 - Fixed all TypeScript compilation warnings and errors including unused methods and type casting on timestamps.
-- Designed and implemented true snapshot-based save state serialization (`exportGbaState` / `importGbaState`) on the `save-state-debugging` branch, capturing the full CPU, memory (WRAM/IRAM), GfxState (VRAM/OAM/palette), timers, DMAs, and cartridge-chip registers for instant frame-accurate quicksaving and quickloading.
+- Designed and implemented true snapshot-based save state serialization (`exportGbaState` / `importGbaState`) on the `save-state-debugging` branch, capturing the full CPU, memory (WRAM/IRAM), GfxState, timers, DMAs, and cartridge-chip registers.
+- Resolved quickload visual corruption (scrambled/corrupted tile visuals on reload) by deeply serializing all background controllers (text, affine, matrices), color effects, and windows, and rebuilding the graphics/sprite lookup caches by feeding Palette and OAM RAM byte-by-byte into their core parsing write functions on load.
+- Designed and implemented a self-bootstrapping, persistent local GBA library: on startup, the Rust backend automatically scans the local `roms/` directory to load available ROMs, and scans the `saves/` directory to rebuild all available save-states.
+- Configured ROM import to automatically copy `.gba` ROMs directly into the local `roms/` folder upon drag-and-drop or picker import, guaranteeing persistent local availability across restarts.
 - Downloaded and configured the open-source `gba-audio-test.gba` test ROM for diagnostic bios-free emulator smoke testing.
 
 ## Handoff notes
