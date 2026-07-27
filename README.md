@@ -18,7 +18,7 @@ The app combines a native desktop shell with a browser-based emulation core, giv
   - Pick `.gba` files with the Tauri file dialog.
   - Drag and drop ROMs directly into the window.
   - Frontend validation rejects invalid file types before import.
-  - Automatically imports and copies `.gba` files into a persistent local `roms/` library folder.
+  - Automatically copies imported `.gba` files directly to the safe native local directory, guaranteeing persistent availability across restarts.
 
 - **Integrated gameplay surface**
   - Renders the GBA framebuffer to a scaled in-app canvas.
@@ -26,16 +26,16 @@ The app combines a native desktop shell with a browser-based emulation core, giv
   - Loads ROM bytes from Rust into the frontend as raw byte arrays.
 
 - **ROM library management**
-  - Add ROMs from local disk, which are copied and preserved in the repository's local `roms/` library folder.
-  - Automatically auto-scans and loads all ROMs present inside `roms/` on startup.
+  - Add ROMs via native GBA file picker or manual drag-and-drop, which are copied and preserved in the safe native local `roms/` directory.
+  - Automatically auto-scans and loads all available ROMs present inside the native `roms/` folder on startup.
   - Remove ROMs from the library and delete their physical files and folders from disk.
   - Track `lastPlayedAt` when launching a ROM.
 
 - **Save systems**
   - Cartridge save data is synchronized through frontend storage for live game saves.
   - Save checkpoints are true, frame-accurate GBA hardware snapshots (fully serializing the CPU registers, ARM/THUMB execution states, WRAM/IRAM, background renderers, sprite OAM lists, palettes, sound levels, and cartridge save-chips).
-  - Save checkpoints are stored on disk under `saves/<rom_id>/` as `.state` files.
-  - Automatically auto-scans and lists all saves present inside `saves/` on startup.
+  - Save checkpoints are stored on disk under the safe native local `saves/<rom_id>/` directory as `.state` files.
+  - Automatically auto-scans and lists all saves present inside the native `saves/` folder on startup.
   - Saves can be listed, loaded instantly on the exact frame, and permanently deleted from both the UI and physical disk.
 
 - **Player controls**
@@ -109,11 +109,16 @@ The backend exposes these commands through `tauri::generate_handler!`:
 ## Current Behavior Notes
 
 - **Backend persistence model**
-  - Library ROMs and saves are scanned and reconstructed dynamically on application startup from local folders (`roms/` and `saves/`).
+  - ROM files and save checkpoints are fully persistent, stored under the OS's native local app-data directory:
+    - **Windows**: `%LOCALAPPDATA%\com.gba.emulator`
+    - **macOS**: `~/Library/Application Support/com.gba.emulator`
+    - **Linux**: `~/.local/share/com.gba.emulator`
+  - Explicitly, manual drag-and-drop and the native GBA file picker both copy the `.gba` ROM directly into this safe local directory.
+  - On startup, the Rust backend automatically scans the local `roms/` directory to load available ROMs, and scans the `saves/` directory to rebuild all available save-states.
   - Active emulator session metadata remains in-memory only.
 
 - **ROM loading**
-  - ROM metadata is derived from the copied local file path under the persistent local library.
+  - ROM metadata is derived from the copied local file path under the persistent native local library.
   - ROM bytes are returned from Rust as raw `Vec<u8>` data and consumed in the frontend.
 
 - **Save behavior**
@@ -123,21 +128,34 @@ The backend exposes these commands through `tauri::generate_handler!`:
 
 ## Development Commands
 
-Use either the npm scripts or the helper shell script:
+Choose the commands based on your operating system:
 
+### Windows, macOS, and Standard Linux (Ubuntu/Debian)
+Can set up and run using standard commands:
 ```bash
 npm install
 npm run dev
+```
+For production compilation:
+```bash
 npm run build
 ```
 
+### RHEL / Rocky Linux (with bundled shims)
+Can bootstrap and launch via the local shell scripts which configure local compatibility shims under `pkgconfig/` and `lib/`:
 ```bash
+chmod +x setup_linux_deps.sh run.sh
+./setup_linux_deps.sh
 ./run.sh dev
+```
+For production compilation:
+```bash
 ./run.sh build
+```
+To clean target compilation caches:
+```bash
 ./run.sh clean
 ```
-
-On this project, `run.sh` exports the local `PKG_CONFIG_PATH`, `LIBRARY_PATH`, and `LD_LIBRARY_PATH` values needed for the Linux compatibility shims in `pkgconfig/` and `lib/`.
 
 ## Setup
 

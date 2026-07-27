@@ -6,6 +6,7 @@ use std::{
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::Manager;
 use tauri::State;
 
 #[derive(Clone, Serialize)]
@@ -79,7 +80,7 @@ struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        let mut backend = BackendState {
+        let backend = BackendState {
             roms: Vec::new(),
             emulator: EmulatorSession {
                 status: EmulatorStatus::Stopped,
@@ -94,12 +95,29 @@ impl Default for AppState {
             next_save_id: 1,
         };
 
-        scan_library(&mut backend);
-
         Self {
             backend: Mutex::new(backend),
         }
     }
+}
+
+fn get_library_paths(app_handle: &tauri::AppHandle) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let data_dir = app_handle.path().app_local_data_dir()
+        .map_err(|e| format!("Failed to get local data directory: {}", e))?;
+    let roms_dir = data_dir.join("roms");
+    let saves_dir = data_dir.join("saves");
+    Ok((roms_dir, saves_dir))
+}
+
+fn ensure_library_directories(app_handle: &tauri::AppHandle) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let (roms_dir, saves_dir) = get_library_paths(app_handle)?;
+    if !roms_dir.exists() {
+        fs::create_dir_all(&roms_dir).map_err(|e| format!("Failed to create roms directory: {}", e))?;
+    }
+    if !saves_dir.exists() {
+        fs::create_dir_all(&saves_dir).map_err(|e| format!("Failed to create saves directory: {}", e))?;
+    }
+    Ok((roms_dir, saves_dir))
 }
 
 impl BackendState {
@@ -144,15 +162,11 @@ fn derive_file_name(path: &str) -> String {
         .to_string()
 }
 
-fn scan_library(backend: &mut BackendState) {
-    // 1. Ensure "roms" directory exists
-    let roms_dir = Path::new("roms");
-    if !roms_dir.exists() {
-        let _ = fs::create_dir_all(roms_dir);
-    }
+fn scan_library(backend: &mut BackendState, app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let (roms_dir, saves_dir) = ensure_library_directories(app_handle)?;
 
     // 2. Scan "roms" directory
-    if let Ok(entries) = fs::read_dir(roms_dir) {
+    if let Ok(entries) = fs::read_dir(&roms_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("gba")) {
@@ -180,14 +194,8 @@ fn scan_library(backend: &mut BackendState) {
         }
     }
 
-    // 3. Ensure "saves" directory exists
-    let saves_dir = Path::new("saves");
-    if !saves_dir.exists() {
-        let _ = fs::create_dir_all(saves_dir);
-    }
-
     // 4. Scan "saves" directory
-    if let Ok(rom_dirs) = fs::read_dir(saves_dir) {
+    if let Ok(rom_dirs) = fs::read_dir(&saves_dir) {
         for rom_dir_entry in rom_dirs.flatten() {
             let rom_dir_path = rom_dir_entry.path();
             if rom_dir_path.is_dir() {
@@ -249,6 +257,8 @@ fn scan_library(backend: &mut BackendState) {
             }
         }
     }
+
+    Ok(())
 }
 
 fn is_supported_rom_file(path: &str) -> bool {
@@ -272,7 +282,7 @@ fn list_roms(state: State<'_, AppState>) -> Result<Vec<RomMetadata>, String> {
 }
 
 #[tauri::command]
-fn add_rom(file_path: String, state: State<'_, AppState>) -> Result<RomMetadata, String> {
+fn add_rom(file_path: String, app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<RomMetadata, String> {
     let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
 
     if file_path.trim().is_empty() {
@@ -289,11 +299,8 @@ fn add_rom(file_path: String, state: State<'_, AppState>) -> Result<RomMetadata,
         return Err("ROM path must point to a file".to_string());
     }
 
-    // Ensure local "roms" directory exists
-    let roms_dir = Path::new("roms");
-    if !roms_dir.exists() {
-        fs::create_dir_all(roms_dir).map_err(|e| format!("Failed to create roms library folder: {}", e))?;
-    }
+    // Resolve roms_dir using ensure_library_directories(&app_handle)?
+    let (roms_dir, _) = ensure_library_directories(&app_handle)?;
 
     // Copy to "roms" folder
     let file_name = derive_file_name(&file_path);
@@ -326,7 +333,7 @@ fn add_rom(file_path: String, state: State<'_, AppState>) -> Result<RomMetadata,
 }
 
 #[tauri::command]
-fn remove_rom(rom_id: String, state: State<'_, AppState>) -> Result<(), String> {
+fn remove_rom(rom_id: String, app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
     
     // Find ROM to delete its file from disk
@@ -344,7 +351,8 @@ fn remove_rom(rom_id: String, state: State<'_, AppState>) -> Result<(), String> 
     }
 
     // Delete saves directory from disk
-    let rom_saves_dir = Path::new("saves").join(&rom_id);
+    let (_, saves_dir) = get_library_paths(&app_handle)?;
+    let rom_saves_dir = saves_dir.join(&rom_id);
     if rom_saves_dir.exists() {
         let _ = fs::remove_dir_all(rom_saves_dir);
     }
@@ -466,7 +474,7 @@ fn stop_emulator(state: State<'_, AppState>) -> Result<EmulatorSession, String> 
 }
 
 #[tauri::command]
-fn save_state(label: Option<String>, save_data: Vec<u8>, state: State<'_, AppState>) -> Result<SaveEntry, String> {
+fn save_state(label: Option<String>, save_data: Vec<u8>, app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<SaveEntry, String> {
     let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
     let rom_id = backend
         .emulator
@@ -477,14 +485,18 @@ fn save_state(label: Option<String>, save_data: Vec<u8>, state: State<'_, AppSta
         .rom_title_for(&rom_id)
         .ok_or_else(|| "Loaded ROM no longer exists in the library".to_string())?;
 
+    let (_, saves_dir) = ensure_library_directories(&app_handle)?;
     let save_id = format!("save-{}", backend.next_save_id);
+    let file_path = saves_dir.join(&rom_id).join(format!("{}.state", save_id));
+    let file_path_str = file_path.to_string_lossy().to_string();
+
     let save = SaveEntry {
         id: save_id.clone(),
         rom_id: rom_id.clone(),
         rom_title,
         label: label.unwrap_or_else(|| format!("Quick Save {}", backend.next_save_id)),
         kind: SaveKind::SaveState,
-        file_path: format!("saves/{rom_id}/{save_id}.state"),
+        file_path: file_path_str,
         created_at: current_timestamp(),
     };
 
@@ -564,6 +576,15 @@ pub fn run() {
         .manage(AppState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let app_handle = app.handle();
+            let state = app_handle.state::<AppState>();
+            let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
+            if let Err(e) = scan_library(&mut backend, app_handle) {
+                eprintln!("Warning: Failed to scan ROM library on startup: {}", e);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_dashboard_state,
             list_roms,

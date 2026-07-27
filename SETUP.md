@@ -28,39 +28,39 @@ Install these before running the app:
 npm install
 ```
 
-## Running the app
+## Setup and Execution Workflows
 
-You can use either npm directly or the provided helper script.
+Choose the execution workflow that matches your operating system:
 
-### Option 1: helper script
-
+### Windows, macOS, and Standard Linux (Ubuntu/Debian)
+Can set up, run, and compile the app using standard npm commands flawlessly:
 ```bash
-./run.sh dev
-```
+# Install dependencies
+npm install
 
-### Option 2: npm script
-
-```bash
+# Run the app in development mode
 npm run dev
-```
 
-## Building the app
-
-### Development build flow
-
-```bash
+# Compile the production app packages
 npm run build
 ```
 
-Or:
-
+### RHEL / Rocky Linux (with bundled shims)
+Can bootstrap, run, and compile the app via the local shell scripts. These configure the local compatibility shims under `pkgconfig/` and `lib/` and export required path environment variables seamlessly:
 ```bash
+# Make helper scripts executable
+chmod +x setup_linux_deps.sh run.sh
+
+# Bootstrap and install dependencies
+./setup_linux_deps.sh
+
+# Run the app in desktop development mode (with hot-reloading)
+./run.sh dev
+
+# Compile and package production installer bundles
 ./run.sh build
-```
 
-## Cleaning Rust build artifacts
-
-```bash
+# Clean cargo target compilation caches
 ./run.sh clean
 ```
 
@@ -132,9 +132,13 @@ PKG_CONFIG_PATH="$PWD/pkgconfig:$PKG_CONFIG_PATH" LIBRARY_PATH="$PWD/lib:$LIBRAR
 
 ## Important runtime behavior
 
-- ROM library metadata is stored in memory only.
-- Save checkpoints are written to disk under `saves/<rom_id>/`.
-- The app expects local `.gba` files for ROM import.
+- **Backend persistence model**: ROM files and save checkpoints are fully persistent across restarts, stored under the OS's native local app-data directory:
+  - **Windows**: `%LOCALAPPDATA%\com.gba.emulator`
+  - **macOS**: `~/Library/Application Support/com.gba.emulator`
+  - **Linux**: `~/.local/share/com.gba.emulator`
+- **ROM imports**: Manual drag-and-drop and the native GBA file picker both copy the `.gba` ROM directly to this safe native local folder, guaranteeing persistent local availability.
+- **Saves metadata and state**: Save checkpoints are stored dynamically under the native `saves/<rom_id>/` directory as `.state` files, and automatically scanned/listed on startup.
+- **Active session**: Active emulator session state (such as running/paused/loaded ROM metadata) remains in-memory only.
 
 ## Troubleshooting
 
@@ -143,14 +147,6 @@ PKG_CONFIG_PATH="$PWD/pkgconfig:$PKG_CONFIG_PATH" LIBRARY_PATH="$PWD/lib:$LIBRAR
 - Run `./setup_linux_deps.sh`
 - Prefer `./run.sh dev` or `./run.sh build`
 - Confirm the compatibility files exist under `pkgconfig/` and `lib/`
-
-### App launches but library is empty after restart
-
-This is expected with the current architecture. Backend ROM metadata is not persisted yet.
-
-### Save files exist but ROM list reset
-
-Also expected. Save checkpoint files are disk-backed, but the ROM library index is still in-memory only.
 
 ## Verified commands
 
