@@ -92,6 +92,7 @@ The Rust backend exposes 14 commands through `tauri::generate_handler!`:
 - Resolved quickload visual corruption (scrambled/corrupted tile visuals on reload) by deeply serializing all background controllers (text, affine, matrices), color effects, and windows, and rebuilding the graphics/sprite lookup caches by feeding Palette and OAM RAM byte-by-byte into their core parsing write functions on load.
 - Designed and implemented a self-bootstrapping, persistent local GBA library: on startup, the Rust backend automatically scans the local `roms/` directory to load available ROMs, and scans the `saves/` directory to rebuild all available save-states.
 - Configured ROM import to automatically copy `.gba` ROMs directly into the local `roms/` folder upon drag-and-drop or picker import, guaranteeing persistent local availability across restarts.
+- Implemented robust, disk-backed save-state deletion capability (`remove_save`), allowing players to permanently delete checkpoints both in the dashboard UI and from their physical disk space.
 - Downloaded and configured the open-source `gba-audio-test.gba` test ROM for diagnostic bios-free emulator smoke testing.
 
 ## Handoff notes
