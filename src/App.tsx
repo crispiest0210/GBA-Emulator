@@ -145,6 +145,390 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function exportGbaState(iodine: any) {
+  const io = iodine.IOCore;
+  if (!io) return null;
+
+  // CPU NZCV branch flags
+  const nzcv = io.cpu.branchFlags.getNZCV();
+
+  // Active save chip state
+  let saveChipState: any = null;
+  if (io.saves && io.saves.currentChip) {
+    const chip = io.saves.currentChip;
+    saveChipState = {
+      saveType: io.saves.saveType,
+      type: chip.constructor.name,
+      // SRAM / General
+      saves: chip.saves ? Array.from(chip.saves as Uint8Array) : null,
+      // EEPROM
+      mode: chip.mode,
+      bitsProcessed: chip.bitsProcessed,
+      address: chip.address,
+      buffer: chip.buffer ? Array.from(chip.buffer as Uint8Array) : null,
+      // FLASH
+      largestSizePossible: chip.largestSizePossible,
+      notATMEL: chip.notATMEL,
+      BANKOffset: chip.BANKOffset,
+      flashCommandUnlockStage: chip.flashCommandUnlockStage,
+      flashCommand: chip.flashCommand,
+      writeBytesLeft: chip.writeBytesLeft,
+    };
+  }
+
+  return {
+    systemStatus: io.systemStatus,
+    cyclesToIterate: io.cyclesToIterate,
+    cyclesOveriteratedPreviously: io.cyclesOveriteratedPreviously,
+    accumulatedClocks: io.accumulatedClocks,
+    graphicsClocks: io.graphicsClocks,
+    timerClocks: io.timerClocks,
+    serialClocks: io.serialClocks,
+    nextEventClocks: io.nextEventClocks,
+
+    memory: {
+      WRAMControlFlags: io.memory.WRAMControlFlags,
+      lastBIOSREAD: io.memory.lastBIOSREAD,
+      externalRAM: Array.from(io.memory.externalRAM as Uint8Array),
+      internalRAM: Array.from(io.memory.internalRAM as Uint8Array),
+    },
+
+    wait: {
+      WRAMConfiguration: io.wait.WRAMConfiguration,
+      WRAMWaitState: io.wait.WRAMWaitState,
+      SRAMWaitState: io.wait.SRAMWaitState,
+      WAITCNT0: io.wait.WAITCNT0,
+      WAITCNT1: io.wait.WAITCNT1,
+      POSTBOOT: io.wait.POSTBOOT,
+      buffer: io.wait.buffer,
+      clocks: io.wait.clocks,
+      waitStateClocks16: Array.from(io.wait.waitStateClocks16 as Uint8Array),
+      waitStateClocks32: Array.from(io.wait.waitStateClocks32 as Uint8Array),
+    },
+
+    cpu: {
+      registers: Array.from(io.cpu.registers as Int32Array),
+      registersUSR: Array.from(io.cpu.registersUSR as Int32Array),
+      registersFIQ: Array.from(io.cpu.registersFIQ as Int32Array),
+      registersSVC: Array.from(io.cpu.registersSVC as Int32Array),
+      registersABT: Array.from(io.cpu.registersABT as Int32Array),
+      registersIRQ: Array.from(io.cpu.registersIRQ as Int32Array),
+      registersUND: Array.from(io.cpu.registersUND as Int32Array),
+      modeFlags: io.cpu.modeFlags,
+      SPSR: Array.from(io.cpu.SPSR as Uint16Array),
+      triggeredIRQ: io.cpu.triggeredIRQ,
+      mul64ResultHigh: io.cpu.mul64ResultHigh,
+      mul64ResultLow: io.cpu.mul64ResultLow,
+      nzcv: nzcv,
+
+      ARM: {
+        fetch: io.cpu.ARM.fetch,
+        decode: io.cpu.ARM.decode,
+        execute: io.cpu.ARM.execute,
+      },
+      THUMB: {
+        fetch: io.cpu.THUMB.fetch,
+        decode: io.cpu.THUMB.decode,
+        execute: io.cpu.THUMB.execute,
+      },
+    },
+
+    irq: {
+      interruptsEnabled: io.irq.interruptsEnabled,
+      interruptsRequested: io.irq.interruptsRequested,
+      IME: io.irq.IME,
+    },
+
+    timer: {
+      timer0Counter: io.timer.timer0Counter,
+      timer0Reload: io.timer.timer0Reload,
+      timer0Control: io.timer.timer0Control,
+      timer0Enabled: io.timer.timer0Enabled,
+      timer0IRQ: io.timer.timer0IRQ,
+      timer0Precounter: io.timer.timer0Precounter,
+      timer0Prescalar: io.timer.timer0Prescalar,
+      timer0PrescalarShifted: io.timer.timer0PrescalarShifted,
+
+      timer1Counter: io.timer.timer1Counter,
+      timer1Reload: io.timer.timer1Reload,
+      timer1Control: io.timer.timer1Control,
+      timer1Enabled: io.timer.timer1Enabled,
+      timer1IRQ: io.timer.timer1IRQ,
+      timer1Precounter: io.timer.timer1Precounter,
+      timer1Prescalar: io.timer.timer1Prescalar,
+      timer1PrescalarShifted: io.timer.timer1PrescalarShifted,
+      timer1CountUp: io.timer.timer1CountUp,
+
+      timer2Counter: io.timer.timer2Counter,
+      timer2Reload: io.timer.timer2Reload,
+      timer2Control: io.timer.timer2Control,
+      timer2Enabled: io.timer.timer2Enabled,
+      timer2IRQ: io.timer.timer2IRQ,
+      timer2Precounter: io.timer.timer2Precounter,
+      timer2Prescalar: io.timer.timer2Prescalar,
+      timer2PrescalarShifted: io.timer.timer2PrescalarShifted,
+      timer2CountUp: io.timer.timer2CountUp,
+
+      timer3Counter: io.timer.timer3Counter,
+      timer3Reload: io.timer.timer3Reload,
+      timer3Control: io.timer.timer3Control,
+      timer3Enabled: io.timer.timer3Enabled,
+      timer3IRQ: io.timer.timer3IRQ,
+      timer3Precounter: io.timer.timer3Precounter,
+      timer3Prescalar: io.timer.timer3Prescalar,
+      timer3PrescalarShifted: io.timer.timer3PrescalarShifted,
+      timer3CountUp: io.timer.timer3CountUp,
+
+      timer1UseMainClocks: io.timer.timer1UseMainClocks,
+      timer1UseChainedClocks: io.timer.timer1UseChainedClocks,
+      timer2UseMainClocks: io.timer.timer2UseMainClocks,
+      timer2UseChainedClocks: io.timer.timer2UseChainedClocks,
+      timer3UseMainClocks: io.timer.timer3UseMainClocks,
+      timer3UseChainedClocks: io.timer.timer3UseChainedClocks,
+    },
+
+    gfxState: {
+      renderedScanLine: io.gfxState.renderedScanLine,
+      statusFlags: io.gfxState.statusFlags,
+      IRQFlags: io.gfxState.IRQFlags,
+      VCounter: io.gfxState.VCounter,
+      currentScanLine: io.gfxState.currentScanLine,
+      LCDTicks: io.gfxState.LCDTicks,
+    },
+
+    gfxRenderer: {
+      displayControl: io.gfxRenderer.renderer.displayControl,
+      display: io.gfxRenderer.renderer.display,
+      greenSwap: io.gfxRenderer.renderer.greenSwap,
+      WINOutside: io.gfxRenderer.renderer.WINOutside,
+      lastUnrenderedLine: io.gfxRenderer.renderer.lastUnrenderedLine,
+      queuedScanLines: io.gfxRenderer.renderer.queuedScanLines,
+      totalLinesPassed: io.gfxRenderer.renderer.totalLinesPassed,
+      backdrop: io.gfxRenderer.renderer.backdrop,
+      paletteRAM: Array.from(io.gfxRenderer.renderer.paletteRAM as Uint8Array),
+      VRAM: Array.from(io.gfxRenderer.renderer.VRAM as Uint8Array),
+      palette256: Array.from(io.gfxRenderer.renderer.palette256 as Int32Array),
+      paletteOBJ256: Array.from(io.gfxRenderer.renderer.paletteOBJ256 as Int32Array),
+      palette16: Array.from(io.gfxRenderer.renderer.palette16 as Int32Array),
+      paletteOBJ16: Array.from(io.gfxRenderer.renderer.paletteOBJ16 as Int32Array),
+    },
+
+    dma: {
+      currentMatch: io.dma.currentMatch,
+      fetch: io.dma.fetch,
+    },
+    dmaChannels: [0, 1, 2, 3].map(i => {
+      const ch = io[`dmaChannel${i}`];
+      return {
+        enabled: ch.enabled,
+        pending: ch.pending,
+        source: ch.source,
+        sourceShadow: ch.sourceShadow,
+        destination: ch.destination,
+        destinationShadow: ch.destinationShadow,
+        wordCount: ch.wordCount,
+        wordCountShadow: ch.wordCountShadow,
+        irqFlagging: ch.irqFlagging,
+        dmaType: ch.dmaType,
+        is32Bit: ch.is32Bit,
+        repeat: ch.repeat,
+        sourceControl: ch.sourceControl,
+        destinationControl: ch.destinationControl,
+      };
+    }),
+
+    saveChipState: saveChipState,
+  };
+}
+
+function importGbaState(iodine: any, state: any) {
+  const io = iodine.IOCore;
+  if (!io) return;
+
+  // RunLoop / Core
+  io.systemStatus = state.systemStatus;
+  io.cyclesToIterate = state.cyclesToIterate;
+  io.cyclesOveriteratedPreviously = state.cyclesOveriteratedPreviously;
+  io.accumulatedClocks = state.accumulatedClocks;
+  io.graphicsClocks = state.graphicsClocks;
+  io.timerClocks = state.timerClocks;
+  io.serialClocks = state.serialClocks;
+  io.nextEventClocks = state.nextEventClocks;
+
+  // Memory
+  io.memory.WRAMControlFlags = state.memory.WRAMControlFlags;
+  io.memory.lastBIOSREAD = state.memory.lastBIOSREAD;
+  io.memory.externalRAM.set(state.memory.externalRAM);
+  io.memory.internalRAM.set(state.memory.internalRAM);
+
+  // Wait
+  io.wait.WRAMConfiguration = state.wait.WRAMConfiguration;
+  io.wait.WRAMWaitState = state.wait.WRAMWaitState;
+  io.wait.SRAMWaitState = state.wait.SRAMWaitState;
+  io.wait.WAITCNT0 = state.wait.WAITCNT0;
+  io.wait.WAITCNT1 = state.wait.WAITCNT1;
+  io.wait.POSTBOOT = state.wait.POSTBOOT;
+  io.wait.buffer = state.wait.buffer;
+  io.wait.clocks = state.wait.clocks;
+  io.wait.waitStateClocks16.set(state.wait.waitStateClocks16);
+  io.wait.waitStateClocks32.set(state.wait.waitStateClocks32);
+
+  // CPU
+  io.cpu.registers.set(state.cpu.registers);
+  io.cpu.registersUSR.set(state.cpu.registersUSR);
+  io.cpu.registersFIQ.set(state.cpu.registersFIQ);
+  io.cpu.registersSVC.set(state.cpu.registersSVC);
+  io.cpu.registersABT.set(state.cpu.registersABT);
+  io.cpu.registersIRQ.set(state.cpu.registersIRQ);
+  io.cpu.registersUND.set(state.cpu.registersUND);
+  io.cpu.modeFlags = state.cpu.modeFlags;
+  io.cpu.SPSR.set(state.cpu.SPSR);
+  io.cpu.triggeredIRQ = state.cpu.triggeredIRQ;
+  io.cpu.mul64ResultHigh = state.cpu.mul64ResultHigh;
+  io.cpu.mul64ResultLow = state.cpu.mul64ResultLow;
+  io.cpu.branchFlags.setNZCV(state.cpu.nzcv);
+
+  // Instruction sets
+  io.cpu.ARM.fetch = state.cpu.ARM.fetch;
+  io.cpu.ARM.decode = state.cpu.ARM.decode;
+  io.cpu.ARM.execute = state.cpu.ARM.execute;
+  io.cpu.THUMB.fetch = state.cpu.THUMB.fetch;
+  io.cpu.THUMB.decode = state.cpu.THUMB.decode;
+  io.cpu.THUMB.execute = state.cpu.THUMB.execute;
+
+  // IRQ
+  io.irq.interruptsEnabled = state.irq.interruptsEnabled;
+  io.irq.interruptsRequested = state.irq.interruptsRequested;
+  io.irq.IME = state.irq.IME;
+
+  // Timers
+  io.timer.timer0Counter = state.timer.timer0Counter;
+  io.timer.timer0Reload = state.timer.timer0Reload;
+  io.timer.timer0Control = state.timer.timer0Control;
+  io.timer.timer0Enabled = state.timer.timer0Enabled;
+  io.timer.timer0IRQ = state.timer.timer0IRQ;
+  io.timer.timer0Precounter = state.timer.timer0Precounter;
+  io.timer.timer0Prescalar = state.timer.timer0Prescalar;
+  io.timer.timer0PrescalarShifted = state.timer.timer0PrescalarShifted;
+
+  io.timer.timer1Counter = state.timer.timer1Counter;
+  io.timer.timer1Reload = state.timer.timer1Reload;
+  io.timer.timer1Control = state.timer.timer1Control;
+  io.timer.timer1Enabled = state.timer.timer1Enabled;
+  io.timer.timer1IRQ = state.timer.timer1IRQ;
+  io.timer.timer1Precounter = state.timer.timer1Precounter;
+  io.timer.timer1Prescalar = state.timer.timer1Prescalar;
+  io.timer.timer1PrescalarShifted = state.timer.timer1PrescalarShifted;
+  io.timer.timer1CountUp = state.timer.timer1CountUp;
+
+  io.timer.timer2Counter = state.timer.timer2Counter;
+  io.timer.timer2Reload = state.timer.timer2Reload;
+  io.timer.timer2Control = state.timer.timer2Control;
+  io.timer.timer2Enabled = state.timer.timer2Enabled;
+  io.timer.timer2IRQ = state.timer.timer2IRQ;
+  io.timer.timer2Precounter = state.timer.timer2Precounter;
+  io.timer.timer2Prescalar = state.timer.timer2Prescalar;
+  io.timer.timer2PrescalarShifted = state.timer.timer2PrescalarShifted;
+  io.timer.timer2CountUp = state.timer.timer2CountUp;
+
+  io.timer.timer3Counter = state.timer.timer3Counter;
+  io.timer.timer3Reload = state.timer.timer3Reload;
+  io.timer.timer3Control = state.timer.timer3Control;
+  io.timer.timer3Enabled = state.timer.timer3Enabled;
+  io.timer.timer3IRQ = state.timer.timer3IRQ;
+  io.timer.timer3Precounter = state.timer.timer3Precounter;
+  io.timer.timer3Prescalar = state.timer.timer3Prescalar;
+  io.timer.timer3PrescalarShifted = state.timer.timer3PrescalarShifted;
+  io.timer.timer3CountUp = state.timer.timer3CountUp;
+
+  io.timer.timer1UseMainClocks = state.timer.timer1UseMainClocks;
+  io.timer.timer1UseChainedClocks = state.timer.timer1UseChainedClocks;
+  io.timer.timer2UseMainClocks = state.timer.timer2UseMainClocks;
+  io.timer.timer2UseChainedClocks = state.timer.timer2UseChainedClocks;
+  io.timer.timer3UseMainClocks = state.timer.timer3UseMainClocks;
+  io.timer.timer3UseChainedClocks = state.timer.timer3UseChainedClocks;
+
+  // GfxState
+  io.gfxState.renderedScanLine = state.gfxState.renderedScanLine;
+  io.gfxState.statusFlags = state.gfxState.statusFlags;
+  io.gfxState.IRQFlags = state.gfxState.IRQFlags;
+  io.gfxState.VCounter = state.gfxState.VCounter;
+  io.gfxState.currentScanLine = state.gfxState.currentScanLine;
+  io.gfxState.LCDTicks = state.gfxState.LCDTicks;
+
+  // GfxRenderer
+  io.gfxRenderer.renderer.displayControl = state.gfxRenderer.displayControl;
+  io.gfxRenderer.renderer.display = state.gfxRenderer.display;
+  io.gfxRenderer.renderer.greenSwap = state.gfxRenderer.greenSwap;
+  io.gfxRenderer.renderer.WINOutside = state.gfxRenderer.WINOutside;
+  io.gfxRenderer.renderer.lastUnrenderedLine = state.gfxRenderer.lastUnrenderedLine;
+  io.gfxRenderer.renderer.queuedScanLines = state.gfxRenderer.queuedScanLines;
+  io.gfxRenderer.renderer.totalLinesPassed = state.gfxRenderer.totalLinesPassed;
+  io.gfxRenderer.renderer.backdrop = state.gfxRenderer.backdrop;
+  io.gfxRenderer.renderer.paletteRAM.set(state.gfxRenderer.paletteRAM);
+  io.gfxRenderer.renderer.VRAM.set(state.gfxRenderer.VRAM);
+  io.gfxRenderer.renderer.palette256.set(state.gfxRenderer.palette256);
+  io.gfxRenderer.renderer.paletteOBJ256.set(state.gfxRenderer.paletteOBJ256);
+  io.gfxRenderer.renderer.palette16.set(state.gfxRenderer.palette16);
+  io.gfxRenderer.renderer.paletteOBJ16.set(state.gfxRenderer.paletteOBJ16);
+
+  // DMAs
+  io.dma.currentMatch = state.dma.currentMatch;
+  io.dma.fetch = state.dma.fetch;
+  state.dmaChannels.forEach((chState: any, i: number) => {
+    const ch = io[`dmaChannel${i}`];
+    ch.enabled = chState.enabled;
+    ch.pending = chState.pending;
+    ch.source = chState.source;
+    ch.sourceShadow = chState.sourceShadow;
+    ch.destination = chState.destination;
+    ch.destinationShadow = chState.destinationShadow;
+    ch.wordCount = chState.wordCount;
+    ch.wordCountShadow = chState.wordCountShadow;
+    ch.irqFlagging = chState.irqFlagging;
+    ch.dmaType = chState.dmaType;
+    ch.is32Bit = chState.is32Bit;
+    ch.repeat = chState.repeat;
+    ch.sourceControl = chState.sourceControl;
+    ch.destinationControl = chState.destinationControl;
+  });
+
+  // Restore save chip state if it exists
+  if (state.saveChipState && io.saves) {
+    const sState = state.saveChipState;
+    io.saves.saveType = sState.saveType;
+    
+    if (io.saves.currentChip) {
+      const chip = io.saves.currentChip;
+      // SRAM
+      if (sState.saves && chip.saves) {
+        chip.saves.set(sState.saves);
+      }
+      // EEPROM
+      if (sState.buffer && chip.buffer) {
+        chip.mode = sState.mode;
+        chip.bitsProcessed = sState.bitsProcessed;
+        chip.address = sState.address;
+        chip.buffer.set(sState.buffer);
+      }
+      // FLASH
+      if (sState.type === "GameBoyAdvanceFLASHChip") {
+        chip.largestSizePossible = sState.largestSizePossible;
+        chip.notATMEL = sState.notATMEL;
+        chip.BANKOffset = sState.BANKOffset;
+        chip.flashCommandUnlockStage = sState.flashCommandUnlockStage;
+        chip.flashCommand = sState.flashCommand;
+        chip.writeBytesLeft = sState.writeBytesLeft;
+      }
+    }
+  }
+
+  // Force renderer preprocess and event scheduling update
+  io.gfxRenderer.renderer.compositorPreprocess();
+  io.gfxState.isRenderingCheckPreprocess();
+  io.updateCoreEventTime();
+}
+
 function App() {
   const [roms, setRoms] = useState<RomMetadata[]>([]);
   const [saves, setSaves] = useState<SaveEntry[]>([]);
@@ -337,24 +721,31 @@ function App() {
   // Dedicated emulator helper functions for Quick Save/Load/Rewind
   async function performQuickSave() {
     if (!iodineRef.current) return;
-    const saveBytes = iodineRef.current.IOCore.saves.exportSave();
-    if (!saveBytes) {
-      setFlash({ tone: "error", text: "Nothing to save yet. Run the game first." });
-      return;
-    }
-    const saveArray = Array.from(saveBytes);
-    await runAction(
-      "Quick saving checkpoint",
-      () => invoke<SaveEntry>("save_state", { label: "Quick Save Checkpoint", saveData: saveArray }),
-      async () => {
-        const nextSaves = await invoke<SaveEntry[]>("list_saves", {
-          romId: saveFilter === "all" ? null : saveFilter,
-        });
-        setSaves(nextSaves);
-        setFlash({ tone: "success", text: "Quick Save Created! 💾" });
-        setTimeout(() => setFlash(null), 2000);
+    try {
+      const gbaState = exportGbaState(iodineRef.current);
+      if (!gbaState) {
+        setFlash({ tone: "error", text: "Nothing to save yet. Run the game first." });
+        return;
       }
-    );
+      const jsonString = JSON.stringify(gbaState);
+      const saveBytes = new TextEncoder().encode(jsonString);
+      const saveArray = Array.from(saveBytes);
+      
+      await runAction(
+        "Quick saving checkpoint",
+        () => invoke<SaveEntry>("save_state", { label: "Quick Save Checkpoint", saveData: saveArray }),
+        async () => {
+          const nextSaves = await invoke<SaveEntry[]>("list_saves", {
+            romId: saveFilter === "all" ? null : saveFilter,
+          });
+          setSaves(nextSaves);
+          setFlash({ tone: "success", text: "Quick Save Created! 💾" });
+          setTimeout(() => setFlash(null), 2000);
+        }
+      );
+    } catch (e) {
+      setFlash({ tone: "error", text: "Quick save failed: " + getErrorMessage(e) });
+    }
   }
 
   async function performQuickLoad() {
@@ -364,8 +755,22 @@ function App() {
       if (savesList.length > 0) {
         const latestSave = savesList[savesList.length - 1];
         const saveBytes = await invoke<number[]>("read_save_file", { saveId: latestSave.id });
-        const convertedSave = new Uint8Array(saveBytes);
+        const bytesUint8 = new Uint8Array(saveBytes);
         
+        try {
+          const jsonString = new TextDecoder().decode(bytesUint8);
+          const parsedState = JSON.parse(jsonString);
+          if (parsedState.memory && parsedState.cpu) {
+            importGbaState(iodineRef.current, parsedState);
+            setFlash({ tone: "success", text: "Quick Save Loaded! 📂" });
+            setTimeout(() => setFlash(null), 2000);
+            return;
+          }
+        } catch (e) {
+          console.warn("Failed to load rich snapshot, falling back to legacy format:", e);
+        }
+
+        const convertedSave = new Uint8Array(saveBytes);
         const currentSaveType = iodineRef.current.IOCore.saves.exportSaveType();
         iodineRef.current.IOCore.saves.importSave(convertedSave, currentSaveType);
 
@@ -577,6 +982,19 @@ function App() {
             }, 8);
           }
           
+          // Attempt rich snapshot load first!
+          try {
+            const jsonString = new TextDecoder().decode(convertedSave);
+            const parsedState = JSON.parse(jsonString);
+            if (parsedState.memory && parsedState.cpu) {
+              importGbaState(iodine, parsedState);
+              pendingSaveStateRef.current = null;
+              return;
+            }
+          } catch (e) {
+            console.warn("Failed to load rich snapshot in syncSession, falling back to legacy format:", e);
+          }
+
           iodine.IOCore.saves.importSave(convertedSave, 0);
           
           const gameName = iodine.getGameName();
@@ -892,22 +1310,27 @@ function App() {
       return;
     }
 
-    const saveBytes = iodineRef.current.IOCore.saves.exportSave();
-    if (!saveBytes) {
-      setFlash({ tone: "error", text: "Nothing to save yet. Run the game first." });
-      return;
+    try {
+      const gbaState = exportGbaState(iodineRef.current);
+      if (!gbaState) {
+        setFlash({ tone: "error", text: "Nothing to save yet. Run the game first." });
+        return;
+      }
+      const jsonString = JSON.stringify(gbaState);
+      const saveBytes = new TextEncoder().encode(jsonString);
+      const saveArray = Array.from(saveBytes);
+
+      await runAction(
+        "Creating save state",
+        () => invoke<SaveEntry>("save_state", { label: saveLabel.trim() || null, saveData: saveArray }),
+        async () => {
+          setSaveLabel("");
+          await refreshDashboard("Save state created.");
+        },
+      );
+    } catch (e) {
+      setFlash({ tone: "error", text: "Save creation failed: " + getErrorMessage(e) });
     }
-
-    const saveArray = Array.from(saveBytes);
-
-    await runAction(
-      "Creating save state",
-      () => invoke<SaveEntry>("save_state", { label: saveLabel.trim() || null, saveData: saveArray }),
-      async () => {
-        setSaveLabel("");
-        await refreshDashboard("Save state created.");
-      },
-    );
   }
 
   async function handleQuerySaves() {
@@ -943,6 +1366,18 @@ function App() {
 
         // If the core is already running, we can immediately apply it!
         if (iodineRef.current && activeRomIdRef.current === pausedSession.loadedRomId) {
+          try {
+            const jsonString = new TextDecoder().decode(convertedSave);
+            const parsedState = JSON.parse(jsonString);
+            if (parsedState.memory && parsedState.cpu) {
+              importGbaState(iodineRef.current, parsedState);
+              pendingSaveStateRef.current = null;
+              return pausedSession;
+            }
+          } catch (e) {
+            console.warn("Failed to load rich snapshot on running emulator, falling back to legacy format:", e);
+          }
+
           const currentSaveType = iodineRef.current.IOCore.saves.exportSaveType();
           iodineRef.current.IOCore.saves.importSave(convertedSave, currentSaveType);
           
@@ -1015,6 +1450,29 @@ function App() {
 
               {emuFastForward && (
                 <div className="ff-indicator">FAST FORWARD &gt;&gt;</div>
+              )}
+
+              {flash && (
+                <div style={{
+                  position: "absolute",
+                  top: "16px",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  zIndex: 9999,
+                  padding: "10px 16px",
+                  minWidth: "220px",
+                  maxWidth: "80%",
+                  textAlign: "center",
+                  color: "#fff",
+                  background: flash.tone === "success" ? "#166534" : "#991b1b",
+                  border: "4px solid #000",
+                  boxShadow: `inset 0 0 0 4px ${flash.tone === "success" ? "#22c55e" : "#ef4444"}`,
+                  fontSize: "0.8rem",
+                  textShadow: "1px 1px 0 #000",
+                  pointerEvents: "none",
+                }}>
+                  {flash.text}
+                </div>
               )}
 
               <canvas
