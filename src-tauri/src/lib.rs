@@ -328,11 +328,25 @@ fn add_rom(file_path: String, state: State<'_, AppState>) -> Result<RomMetadata,
 #[tauri::command]
 fn remove_rom(rom_id: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
+    
+    // Find ROM to delete its file from disk
+    if let Some(rom) = backend.roms.iter().find(|rom| rom.id == rom_id) {
+        if Path::new(&rom.file_path).exists() {
+            let _ = fs::remove_file(&rom.file_path);
+        }
+    }
+
     let initial_count = backend.roms.len();
     backend.roms.retain(|rom| rom.id != rom_id);
 
     if backend.roms.len() == initial_count {
         return Err("ROM not found".to_string());
+    }
+
+    // Delete saves directory from disk
+    let rom_saves_dir = Path::new("saves").join(&rom_id);
+    if rom_saves_dir.exists() {
+        let _ = fs::remove_dir_all(rom_saves_dir);
     }
 
     backend.saves.retain(|save| save.rom_id != rom_id);
@@ -347,6 +361,29 @@ fn remove_rom(rom_id: String, state: State<'_, AppState>) -> Result<(), String> 
             fast_forward: false,
         };
     }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_save(save_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut backend = state.backend.lock().map_err(|err| err.to_string())?;
+
+    let index = backend
+        .saves
+        .iter()
+        .position(|save| save.id == save_id)
+        .ok_or_else(|| "Save state not found".to_string())?;
+
+    let save = &backend.saves[index];
+
+    // Delete file from disk
+    if Path::new(&save.file_path).exists() {
+        fs::remove_file(&save.file_path).map_err(|e| format!("Failed to delete save file: {}", e))?;
+    }
+
+    // Remove from in-memory array
+    backend.saves.remove(index);
 
     Ok(())
 }
@@ -532,6 +569,7 @@ pub fn run() {
             list_roms,
             add_rom,
             remove_rom,
+            remove_save,
             get_emulator_state,
             read_rom_file,
             load_rom,

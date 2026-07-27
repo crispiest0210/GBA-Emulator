@@ -1426,6 +1426,21 @@ function App() {
     );
   }
 
+  async function handleRemoveSave(saveId: string) {
+    await runAction(
+      "Deleting save state",
+      () => invoke<void>("remove_save", { saveId }),
+      async () => {
+        const nextSaves = await invoke<SaveEntry[]>("list_saves", {
+          romId: saveFilter === "all" ? null : saveFilter,
+        });
+        setSaves(nextSaves);
+        setFlash({ tone: "success", text: "Save State Deleted! 🗑️" });
+        setTimeout(() => setFlash(null), 2000);
+      },
+    );
+  }
+
   async function handleResume() {
     await runAction(
       "Resuming emulator",
@@ -1969,6 +1984,9 @@ function App() {
                     <button type="button" onClick={() => void handleLoadSave(save.id)} disabled={isBusy}>
                       Load save
                     </button>
+                    <button type="button" className="danger" onClick={() => void handleRemoveSave(save.id)} disabled={isBusy}>
+                      Remove
+                    </button>
                   </div>
                 </div>
               ))
@@ -2092,6 +2110,9 @@ function App() {
                   <div className="item-actions">
                     <button type="button" onClick={() => void handleLoadSave(save.id)} disabled={isBusy}>
                       Load save
+                    </button>
+                    <button type="button" className="danger" onClick={() => void handleRemoveSave(save.id)} disabled={isBusy}>
+                      Remove
                     </button>
                   </div>
                 </div>
