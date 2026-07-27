@@ -78,6 +78,17 @@ The Rust backend exposes 14 commands through `tauri::generate_handler!`:
 - Implemented persistent disk-backed save checkpoints.
 - Optimized ROM loading by returning raw bytes from Rust instead of Base64 payloads.
 - Added the root `run.sh` helper for Linux-friendly dev/build flows.
+- Patched keyboard event listeners to intercept emulator control keys during the bubbling phase, preventing legacy dual-handler event hijacking.
+- Implemented robust synchronous authentic BIOS loading by pre-fetching `gba_bios.bin` on app mount, eliminating a critical async timing-race condition that crashed the GBA CPU and caused black screens on reload.
+- Guaranteed full emulator core (`IOCore`) initialization prior to save state imports inside `syncSession()`, preventing unhandled TypeErrors that halted the emulator play thread.
+- Implemented automatic CPU warm-reboot (`iodine.restart()`) after any save-state load or quickload operation, forcing GBA games to cleanly detect and load cartridge saves from boot and title screens.
+- Standardized and loosened hotkey status checks to allow quicksaving and quickloading in both `"running"` and `"paused"` states.
+- Untangled GBA SELECT key from HUD menu toggling: HUD menu is now strictly toggled via `Escape` key, allowing GBA SELECT (tilde key) to be passed normally to the emulator to let players save and interact with in-game menus.
+- Integrated an in-game HUD Keybind Configurer overlay allowing players to seamlessly view, customize, and reset GBA keyboard controls on-the-fly while playing.
+- Added a `log_message` Tauri command bridge to automatically forward all frontend JavaScript console logs, warnings, and unhandled errors straight to the desktop terminal for real-time debugging.
+- Added `**/saves/**` to the watch ignore list in `vite.config.ts` to prevent Vite from triggering full browser reloads during gameplay save-states.
+- Fixed all TypeScript compilation warnings and errors including unused methods and type casting on timestamps.
+- Downloaded and configured the open-source `gba-audio-test.gba` test ROM for diagnostic bios-free emulator smoke testing.
 
 ## Handoff notes
 

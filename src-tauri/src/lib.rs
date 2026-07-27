@@ -362,7 +362,7 @@ fn load_state(save_id: String, state: State<'_, AppState>) -> Result<EmulatorSes
     }
 
     backend.emulator = EmulatorSession {
-        status: EmulatorStatus::Paused,
+        status: EmulatorStatus::Running,
         loaded_rom_id: Some(save.rom_id),
         loaded_rom_title: Some(save.rom_title),
         fps_target: 60,
@@ -389,6 +389,11 @@ fn list_saves(rom_id: Option<String>, state: State<'_, AppState>) -> Result<Vec<
     Ok(saves)
 }
 
+#[tauri::command]
+fn log_message(level: String, message: String) {
+    println!("[JS {}] {}", level, message);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -409,7 +414,8 @@ pub fn run() {
             save_state,
             read_save_file,
             load_state,
-            list_saves
+            list_saves,
+            log_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -155,6 +155,7 @@ function App() {
   const [isDropTargetActive, setIsDropTargetActive] = useState(false);
   const [flash, setFlash] = useState<FlashMessage | null>(null);
   const [showEmuMenu, setShowEmuMenu] = useState(false);
+  const [hudActiveTab, setHudActiveTab] = useState<"menu" | "controls">("menu");
   const [iodineInstance, setIodineInstance] = useState<any>(null);
   
   // Custom Controls and Audio Settings
@@ -179,6 +180,8 @@ function App() {
   const timerIdRef = useRef<any>(null);
   const startTimeRef = useRef<number>(Date.now());
   const activeRomIdRef = useRef<string | null>(null);
+  const pendingSaveStateRef = useRef<{ bytes: Uint8Array; romId: string } | null>(null);
+  const biosBytesRef = useRef<Uint8Array | null>(null);
 
   const activeRom = useMemo(
     () => roms.find((rom) => rom.id === emulator.loadedRomId) ?? null,
@@ -196,8 +199,25 @@ function App() {
   );
 
   useEffect(() => {
+    if (emulator.status === "stopped") {
+      if (iodineInstance) {
+        if (timerIdRef.current) {
+          clearInterval(timerIdRef.current);
+          timerIdRef.current = null;
+        }
+        try {
+          iodineInstance.stop();
+        } catch (e) {}
+        isPlayingRef.current = false;
+        activeRomIdRef.current = null;
+      }
+      setIodineInstance(null);
+      iodineRef.current = null;
+      return;
+    }
+
     const initInterval = setInterval(() => {
-      if (window.GameBoyAdvanceEmulator && window.GfxGlueCode && canvasRef.current) {
+      if (biosBytesRef.current && window.GameBoyAdvanceEmulator && window.GfxGlueCode && canvasRef.current) {
         clearInterval(initInterval);
 
         const iodine = new window.GameBoyAdvanceEmulator();
@@ -206,21 +226,8 @@ function App() {
         // Force high-level BIOS emulation (HLE) to skip boot and launch games immediately
         iodine.toggleSkipBootROM(true);
 
-        // Attach a 16KB dummy BIOS array initially to satisfy immediate initialization checks
-        const dummyBios = new Uint8Array(16384);
-        iodine.attachBIOS(dummyBios);
-
-        // Fetch and attach the authentic GBA BIOS to allow successful SWI execution
-        fetch("/gba_bios.bin")
-          .then((res) => res.arrayBuffer())
-          .then((buffer) => {
-            const realBios = new Uint8Array(buffer);
-            if (realBios.length === 16384) {
-              iodine.attachBIOS(realBios);
-            }
-          })
-          .catch(() => {
-          });
+        // Attach the authentic GBA BIOS we pre-loaded on mount
+        iodine.attachBIOS(biosBytesRef.current);
 
         // Configure standard execution timer rates (runs standard cycles per tick)
         iodine.setIntervalRate(8);
@@ -271,11 +278,8 @@ function App() {
     
     return () => {
       clearInterval(initInterval);
-      if (timerIdRef.current) {
-        clearInterval(timerIdRef.current);
-      }
     };
-  }, []);
+  }, [emulator.status]);
 
   // Sync volume state changes to XAudioServer and dynamic variables
   useEffect(() => {
@@ -361,13 +365,18 @@ function App() {
         const latestSave = savesList[savesList.length - 1];
         const saveBytes = await invoke<number[]>("read_save_file", { saveId: latestSave.id });
         const convertedSave = new Uint8Array(saveBytes);
-        iodineRef.current.IOCore.saves.importSave(convertedSave, 0);
+        
+        const currentSaveType = iodineRef.current.IOCore.saves.exportSaveType();
+        iodineRef.current.IOCore.saves.importSave(convertedSave, currentSaveType);
 
         const gameName = iodineRef.current.getGameName();
         if (gameName) {
           const base64Str = window.arrayToBase64(saveBytes);
           localStorage.setItem("SAVE_" + gameName, base64Str);
         }
+
+        // Restart/reboot the core so the game loads the quickloaded cartridge save from boot!
+        iodineRef.current.restart();
 
         setFlash({ tone: "success", text: "Quick Save Loaded! 📂" });
         setTimeout(() => setFlash(null), 2000);
@@ -408,6 +417,12 @@ function App() {
     }
   }
 
+  function consumeKeyboardEvent(event: KeyboardEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+  }
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore keystrokes if the user is typing in form inputs (like state labels)
@@ -418,8 +433,7 @@ function App() {
 
       // If we are actively mapping a keybind
       if (bindingAction) {
-        e.preventDefault();
-        e.stopPropagation();
+        consumeKeyboardEvent(e);
 
         const code = e.code;
         if (code === "Escape") {
@@ -436,10 +450,16 @@ function App() {
         return;
       }
 
-      // Toggle HUD Menu on customized select (tilde/backquote) or Escape if game is loaded
-      if (emulator.status !== "stopped" && (e.key === "Escape" || e.code === keybinds.select)) {
-        setShowEmuMenu(prev => !prev);
-        e.preventDefault();
+      // Toggle HUD Menu on Escape if game is loaded
+      if (emulator.status !== "stopped" && e.key === "Escape") {
+        setShowEmuMenu(prev => {
+          const next = !prev;
+          if (!next) {
+            setHudActiveTab("menu");
+          }
+          return next;
+        });
+        consumeKeyboardEvent(e);
         return;
       }
 
@@ -447,34 +467,34 @@ function App() {
       if (showEmuMenu) return;
 
       // Emulator Action Hotkeys
-      if (e.code === keybinds.quickSave && emulator.status === "running") {
+      if (e.code === keybinds.quickSave && emulator.status !== "stopped") {
         void performQuickSave();
-        e.preventDefault();
+        consumeKeyboardEvent(e);
         return;
       }
-      if (e.code === keybinds.quickLoad && emulator.status === "running") {
+      if (e.code === keybinds.quickLoad && emulator.status !== "stopped") {
         void performQuickLoad();
-        e.preventDefault();
+        consumeKeyboardEvent(e);
         return;
       }
-      if (e.code === keybinds.rewind && emulator.status === "running") {
+      if (e.code === keybinds.rewind && emulator.status !== "stopped") {
         void performRewind();
-        e.preventDefault();
+        consumeKeyboardEvent(e);
         return;
       }
-      if (e.code === keybinds.fastForward && emulator.status === "running") {
+      if (e.code === keybinds.fastForward && emulator.status !== "stopped") {
         if (iodineRef.current) {
           iodineRef.current.setSpeed(3.0);
           setEmuFastForward(true);
         }
-        e.preventDefault();
+        consumeKeyboardEvent(e);
         return;
       }
 
       const index = getGbaKeyIndex(e.code);
       if (index !== null && index !== undefined && iodineRef.current && emulator.status === "running") {
         iodineRef.current.keyDown(index);
-        e.preventDefault();
+        consumeKeyboardEvent(e);
       }
     };
     
@@ -493,14 +513,14 @@ function App() {
           iodineRef.current.setSpeed(1.0);
           setEmuFastForward(false);
         }
-        e.preventDefault();
+        consumeKeyboardEvent(e);
         return;
       }
 
       const index = getGbaKeyIndex(e.code);
       if (index !== null && index !== undefined && iodineRef.current && emulator.status === "running") {
         iodineRef.current.keyUp(index);
-        e.preventDefault();
+        consumeKeyboardEvent(e);
       }
     };
     
@@ -539,6 +559,36 @@ function App() {
             setFlash({ tone: "error", text: getErrorMessage(err) });
             return;
           }
+        }
+
+        // Apply pending save state if exists!
+        if (pendingSaveStateRef.current && pendingSaveStateRef.current.romId === emulator.loadedRomId) {
+          const convertedSave = pendingSaveStateRef.current.bytes;
+          
+          // Ensure core is initialized before importing!
+          if (!iodine.IOCore) {
+            iodine.play();
+            startTimeRef.current = Date.now();
+            isPlayingRef.current = true;
+            if (timerIdRef.current) clearInterval(timerIdRef.current);
+            timerIdRef.current = setInterval(() => {
+              const elapsed = Date.now() - startTimeRef.current;
+              iodine.timerCallback(elapsed >>> 0);
+            }, 8);
+          }
+          
+          iodine.IOCore.saves.importSave(convertedSave, 0);
+          
+          const gameName = iodine.getGameName();
+          if (gameName) {
+            const base64Str = window.arrayToBase64(Array.from(convertedSave));
+            localStorage.setItem("SAVE_" + gameName, base64Str);
+          }
+          
+          // Warm-reset/restart the core so the GBA CPU boots up and loads the new cartridge save from boot!
+          iodine.restart();
+          
+          pendingSaveStateRef.current = null;
         }
         
         if (emulator.status === "running") {
@@ -671,7 +721,53 @@ function App() {
   }
 
   useEffect(() => {
+    // Intercept console messages and forward them to Tauri backend
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    console.log = (...args) => {
+      originalLog(...args);
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      void invoke("log_message", { level: "LOG", message: msg }).catch(() => {});
+    };
+
+    console.warn = (...args) => {
+      originalWarn(...args);
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      void invoke("log_message", { level: "WARN", message: msg }).catch(() => {});
+    };
+
+    console.error = (...args) => {
+      originalError(...args);
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      void invoke("log_message", { level: "ERROR", message: msg }).catch(() => {});
+    };
+
+    // Global uncaught error listener
+    const handleError = (e: ErrorEvent) => {
+      void invoke("log_message", { level: "CRASH", message: `${e.message} at ${e.filename}:${e.lineno}:${e.colno}` }).catch(() => {});
+    };
+    window.addEventListener("error", handleError);
+
+    // Pre-load authentic GBA BIOS for synchronous attachment later
+    fetch("/gba_bios.bin")
+      .then((res) => res.arrayBuffer())
+      .then((buffer) => {
+        biosBytesRef.current = new Uint8Array(buffer);
+      })
+      .catch((err) => {
+        console.error("Failed to load GBA BIOS:", err);
+      });
+
     void refreshDashboard();
+
+    return () => {
+      console.log = originalLog;
+      console.warn = originalWarn;
+      console.error = originalError;
+      window.removeEventListener("error", handleError);
+    };
   }, []);
 
   useEffect(() => {
@@ -762,28 +858,6 @@ function App() {
     );
   }
 
-  async function handleRefreshEmulator() {
-    await runAction(
-      "Refreshing emulator state",
-      () => invoke<EmulatorSession>("get_emulator_state"),
-      (session) => {
-        setEmulator(session);
-      },
-      "Emulator state refreshed.",
-    );
-  }
-
-  async function handlePause() {
-    await runAction(
-      "Pausing emulator",
-      () => invoke<EmulatorSession>("pause_emulator"),
-      (session) => {
-        setEmulator(session);
-      },
-      "Emulator paused.",
-    );
-  }
-
   async function handleResume() {
     await runAction(
       "Resuming emulator",
@@ -851,11 +925,6 @@ function App() {
   }
 
   async function handleLoadSave(saveId: string) {
-    if (!iodineRef.current) {
-      setFlash({ tone: "error", text: "Emulator core is not ready" });
-      return;
-    }
-
     await runAction(
       "Loading save state",
       async () => {
@@ -866,34 +935,30 @@ function App() {
           throw new Error("Save state is missing an associated ROM.");
         }
 
-        if (isPlayingRef.current) {
-          if (timerIdRef.current) {
-            clearInterval(timerIdRef.current);
-            timerIdRef.current = null;
-          }
-          iodineRef.current.pause();
-          isPlayingRef.current = false;
-        }
-
-        if (window.IodineGUI && window.IodineGUI.Blitter && canvasRef.current) {
-          window.IodineGUI.Blitter.attachCanvas(canvasRef.current);
-        }
-
-        const romBytes = await invoke<number[]>("read_rom_file", { romId: pausedSession.loadedRomId });
-        const romArray = new Uint8Array(romBytes);
         const convertedSave = new Uint8Array(saveBytes);
+        pendingSaveStateRef.current = {
+          bytes: convertedSave,
+          romId: pausedSession.loadedRomId,
+        };
 
-        iodineRef.current.attachROM(romArray);
-        activeRomIdRef.current = pausedSession.loadedRomId;
-        iodineRef.current.IOCore.saves.importSave(convertedSave, 0);
+        // If the core is already running, we can immediately apply it!
+        if (iodineRef.current && activeRomIdRef.current === pausedSession.loadedRomId) {
+          const currentSaveType = iodineRef.current.IOCore.saves.exportSaveType();
+          iodineRef.current.IOCore.saves.importSave(convertedSave, currentSaveType);
+          
+          const gameName = iodineRef.current.getGameName();
+          if (gameName) {
+            const base64Str = window.arrayToBase64(saveBytes);
+            localStorage.setItem("SAVE_" + gameName, base64Str);
+          }
 
-        const gameName = iodineRef.current.getGameName();
-        if (gameName) {
-          const base64Str = window.arrayToBase64(saveBytes);
-          localStorage.setItem("SAVE_" + gameName, base64Str);
+          // Warm-reboot the core so the game re-reads the imported save from boot!
+          iodineRef.current.restart();
+
+          pendingSaveStateRef.current = null;
         }
 
-        return invoke<EmulatorSession>("resume_emulator");
+        return pausedSession;
       },
       (session) => {
         setEmulator(session);
@@ -904,17 +969,17 @@ function App() {
 
   const recentRoms = [...roms]
     .sort((a, b) => {
-      const aTime = a.lastPlayedAt ? Date.parse(a.lastPlayedAt) : 0;
-      const bTime = b.lastPlayedAt ? Date.parse(b.lastPlayedAt) : 0;
-      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+      const aTime = a.lastPlayedAt || 0;
+      const bTime = b.lastPlayedAt || 0;
+      return bTime - aTime;
     })
     .slice(0, 3);
 
   const recentSaves = [...saves]
     .sort((a, b) => {
-      const aTime = Date.parse(a.createdAt);
-      const bTime = Date.parse(b.createdAt);
-      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+      const aTime = a.createdAt || 0;
+      const bTime = b.createdAt || 0;
+      return bTime - aTime;
     })
     .slice(0, 4);
 
@@ -1005,110 +1070,207 @@ function App() {
             alignItems: "center",
             zIndex: 10000
           }}>
-            <div className="card emu-menu-card" style={{
-              width: "360px",
-              textAlign: "center",
-              display: "flex",
-              flexDirection: "column",
-              gap: "1rem"
-            }}>
-              <div>
-                <h3 style={{ fontSize: "1.1rem", color: "#ffde59", marginBottom: "8px" }}>PAUSED</h3>
-                <p style={{ margin: "4px 0", color: "#fff", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emulator.loadedRomTitle}</p>
-                <div className="pill" style={{ marginTop: "8px", display: "inline-block" }}>
-                  {emulator.status}
+            {hudActiveTab === "menu" ? (
+              <div className="card emu-menu-card" style={{
+                width: "360px",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem"
+              }}>
+                <div>
+                  <h3 style={{ fontSize: "1.1rem", color: "#ffde59", marginBottom: "8px" }}>PAUSED</h3>
+                  <p style={{ margin: "4px 0", color: "#fff", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emulator.loadedRomTitle}</p>
+                  <div className="pill" style={{ marginTop: "8px", display: "inline-block" }}>
+                    {emulator.status}
+                  </div>
                 </div>
-              </div>
 
-              {/* Volume sliders in HUD */}
-              <div style={{ border: "4px solid #41557d", padding: "12px", background: "#0d1424", margin: "4px 0", textAlign: "left" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "0.65rem", fontFamily: "'Press Start 2P', monospace", color: "#ffde59" }}>VOLUME</span>
-                  <span style={{ fontSize: "0.75rem" }}>{isMuted ? "MUTED" : `${volume}%`}</span>
+                {/* Volume sliders in HUD */}
+                <div style={{ border: "4px solid #41557d", padding: "12px", background: "#0d1424", margin: "4px 0", textAlign: "left" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "0.65rem", fontFamily: "'Press Start 2P', monospace", color: "#ffde59" }}>VOLUME</span>
+                    <span style={{ fontSize: "0.75rem" }}>{isMuted ? "MUTED" : `${volume}%`}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsMuted(!isMuted)}
+                      style={{ padding: "4px 8px", fontSize: "0.75rem", minWidth: "65px", boxShadow: "none", top: 0, border: "2px solid #000" }}
+                    >
+                      {isMuted ? "UNMUTE" : "MUTE"}
+                    </button>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="100" 
+                      value={volume} 
+                      onChange={(e) => setVolume(Number(e.target.value))}
+                      style={{ flex: 1, height: "12px", border: "2px solid #fff", borderRadius: "0px", cursor: "pointer", background: "#000", padding: "0" }}
+                    />
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsMuted(!isMuted)}
-                    style={{ padding: "4px 8px", fontSize: "0.75rem", minWidth: "65px", boxShadow: "none", top: 0, border: "2px solid #000" }}
+                
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmuMenu(false);
+                      setHudActiveTab("menu");
+                      if (emulator.status === "paused") {
+                        void handleResume();
+                      }
+                    }}
+                    className="confirm-btn"
                   >
-                    {isMuted ? "UNMUTE" : "MUTE"}
+                    RESUME GAME
                   </button>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="100" 
-                    value={volume} 
-                    onChange={(e) => setVolume(Number(e.target.value))}
-                    style={{ flex: 1, height: "12px", border: "2px solid #fff", borderRadius: "0px", cursor: "pointer", background: "#000", padding: "0" }}
-                  />
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await performQuickSave();
+                    }}
+                  >
+                    QUICK SAVE ({keybinds.quickSave.replace("Digit", "")})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await performQuickLoad();
+                      setShowEmuMenu(false);
+                      setHudActiveTab("menu");
+                      if (emulator.status === "paused") {
+                        void handleResume();
+                      }
+                    }}
+                  >
+                    QUICK LOAD ({keybinds.quickLoad.replace("Digit", "")})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await performRewind();
+                      setShowEmuMenu(false);
+                      setHudActiveTab("menu");
+                      if (emulator.status === "paused") {
+                        void handleResume();
+                      }
+                    }}
+                    className="warning-btn"
+                  >
+                    REWIND TO SAVE ({keybinds.rewind.replace("Key", "").replace("Digit", "")})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setHudActiveTab("controls")}
+                    style={{ backgroundColor: "#2e3a5a", border: "4px solid #41557d" }}
+                  >
+                    CONFIGURE CONTROLS ⌨️
+                  </button>
+
+                  <div style={{ height: "4px", background: "#41557d", margin: "4px 0" }}></div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmuMenu(false);
+                      setHudActiveTab("menu");
+                      void handleStop();
+                    }}
+                    className="danger"
+                  >
+                    QUIT TO MENU
+                  </button>
                 </div>
               </div>
-              
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEmuMenu(false);
-                    if (emulator.status === "paused") {
-                      void handleResume();
-                    }
-                  }}
-                  className="confirm-btn"
-                >
-                  RESUME GAME
-                </button>
+            ) : (
+              <div className="card emu-menu-card" style={{
+                width: "420px",
+                maxHeight: "85vh",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                overflow: "hidden"
+              }}>
+                <div>
+                  <h3 style={{ fontSize: "1.1rem", color: "#ffde59", marginBottom: "4px" }}>CONTROLS MAPPER</h3>
+                  <p style={{ margin: "4px 0", color: "#fff", fontSize: "0.75rem" }}>
+                    Click to map, then press any key. ESC to cancel.
+                  </p>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await performQuickSave();
-                  }}
-                >
-                  QUICK SAVE ({keybinds.quickSave.replace("Digit", "")})
-                </button>
+                <div className="hud-keybindings-list" style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  border: "4px solid #41557d",
+                  background: "#0d1424",
+                  padding: "10px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px"
+                }}>
+                  {(Object.keys(KEY_LABELS) as Array<keyof Keybinds>).map((action) => {
+                    const isBinding = bindingAction === action;
+                    return (
+                      <div key={action} style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "6px 8px",
+                        background: isBinding ? "rgba(255, 222, 89, 0.1)" : "#162035",
+                        border: "2px solid " + (isBinding ? "#ffde59" : "#41557d")
+                      }}>
+                        <span style={{ fontSize: "0.7rem", fontFamily: "'Silkscreen', monospace", color: "#8fa5c7" }}>
+                          {KEY_LABELS[action]}
+                        </span>
+                        <button
+                          type="button"
+                          className={`keybinding-btn ${isBinding ? "binding" : ""}`}
+                          onClick={() => setBindingAction(action)}
+                          style={{
+                            minWidth: "120px",
+                            padding: "2px 6px",
+                            fontSize: "0.7rem",
+                            height: "auto",
+                            boxShadow: "none",
+                            top: 0
+                          }}
+                        >
+                          {isBinding ? "PRESS KEY..." : keybinds[action].replace("Key", "").replace("Digit", "").toUpperCase()}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await performQuickLoad();
-                    setShowEmuMenu(false);
-                    if (emulator.status === "paused") {
-                      void handleResume();
-                    }
-                  }}
-                >
-                  QUICK LOAD ({keybinds.quickLoad.replace("Digit", "")})
-                </button>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await performRewind();
-                    setShowEmuMenu(false);
-                    if (emulator.status === "paused") {
-                      void handleResume();
-                    }
-                  }}
-                  className="warning-btn"
-                >
-                  REWIND TO SAVE ({keybinds.rewind.replace("Key", "").replace("Digit", "")})
-                </button>
-
-                <div style={{ height: "4px", background: "#41557d", margin: "4px 0" }}></div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEmuMenu(false);
-                    void handleStop();
-                  }}
-                  className="danger"
-                >
-                  QUIT TO MENU
-                </button>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKeybinds(DEFAULT_KEYBINDS);
+                      localStorage.setItem("gba_keybinds", JSON.stringify(DEFAULT_KEYBINDS));
+                      setFlash({ tone: "success", text: "Controls reset to default!" });
+                      setTimeout(() => setFlash(null), 2000);
+                    }}
+                    style={{ flex: 1, padding: "8px", fontSize: "0.75rem" }}
+                  >
+                    RESET ALL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHudActiveTab("menu")}
+                    className="confirm-btn"
+                    style={{ flex: 1, padding: "8px", fontSize: "0.75rem" }}
+                  >
+                    BACK TO MENU
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </main>
