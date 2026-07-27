@@ -176,6 +176,64 @@ function exportGbaState(iodine: any) {
     };
   }
 
+  // Graphics Renderer state
+  const renderer = io.gfxRenderer.renderer;
+  
+  // BG0, BG1, BG2, BG3 Text Renderers
+  const bgs = ["bg0Renderer", "bg1Renderer", "bg2TextRenderer", "bg3TextRenderer"].map(name => {
+    const r = renderer[name];
+    return {
+      BGXCoord: r.BGXCoord,
+      BGYCoord: r.BGYCoord,
+      do256: r.do256,
+      doMosaic: r.doMosaic,
+      tileMode: r.tileMode,
+      priorityFlag: r.priorityFlag,
+      BGScreenBaseBlock: r.BGScreenBaseBlock,
+      BGCharacterBaseBlock: r.BGCharacterBaseBlock
+    };
+  });
+
+  // Affine BG0 and BG1
+  const bgAffines = ["bgAffineRenderer0", "bgAffineRenderer1"].map(name => {
+    const r = renderer[name];
+    return {
+      BGdx: r.BGdx,
+      BGdmx: r.BGdmx,
+      BGdy: r.BGdy,
+      BGdmy: r.BGdmy,
+      BGReferenceX: r.BGReferenceX,
+      BGReferenceY: r.BGReferenceY,
+      pb: r.pb,
+      pd: r.pd,
+      doMosaic: r.doMosaic,
+      priorityFlag: r.priorityFlag
+    };
+  });
+
+  // BG2 and BG3 Matrix Renderers
+  const bgMatrices = ["bg2MatrixRenderer", "bg3MatrixRenderer"].map(name => {
+    const r = renderer[name];
+    return {
+      BGScreenBaseBlock: r.BGScreenBaseBlock,
+      BGCharacterBaseBlock: r.BGCharacterBaseBlock,
+      mapSize: r.mapSize,
+      mapSizeComparer: r.mapSizeComparer,
+      BGDisplayOverflow: r.BGDisplayOverflow
+    };
+  });
+
+  // Color Effects Renderer
+  const ce = renderer.colorEffectsRenderer;
+  const colorEffects = {
+    effectsTarget1: ce.effectsTarget1,
+    colorEffectsType: ce.colorEffectsType,
+    effectsTarget2: ce.effectsTarget2,
+    alphaBlendAmountTarget1: typeof ce.alphaBlendAmountTarget1 === "number" ? ce.alphaBlendAmountTarget1 : 0,
+    alphaBlendAmountTarget2: typeof ce.alphaBlendAmountTarget2 === "number" ? ce.alphaBlendAmountTarget2 : 0,
+    brightnessEffectAmount: typeof ce.brightnessEffectAmount === "number" ? ce.brightnessEffectAmount : 0
+  };
+
   return {
     systemStatus: io.systemStatus,
     cyclesToIterate: io.cyclesToIterate,
@@ -297,20 +355,22 @@ function exportGbaState(iodine: any) {
     },
 
     gfxRenderer: {
-      displayControl: io.gfxRenderer.renderer.displayControl,
-      display: io.gfxRenderer.renderer.display,
-      greenSwap: io.gfxRenderer.renderer.greenSwap,
-      WINOutside: io.gfxRenderer.renderer.WINOutside,
-      lastUnrenderedLine: io.gfxRenderer.renderer.lastUnrenderedLine,
-      queuedScanLines: io.gfxRenderer.renderer.queuedScanLines,
-      totalLinesPassed: io.gfxRenderer.renderer.totalLinesPassed,
-      backdrop: io.gfxRenderer.renderer.backdrop,
-      paletteRAM: Array.from(io.gfxRenderer.renderer.paletteRAM as Uint8Array),
-      VRAM: Array.from(io.gfxRenderer.renderer.VRAM as Uint8Array),
-      palette256: Array.from(io.gfxRenderer.renderer.palette256 as Int32Array),
-      paletteOBJ256: Array.from(io.gfxRenderer.renderer.paletteOBJ256 as Int32Array),
-      palette16: Array.from(io.gfxRenderer.renderer.palette16 as Int32Array),
-      paletteOBJ16: Array.from(io.gfxRenderer.renderer.paletteOBJ16 as Int32Array),
+      displayControl: renderer.displayControl,
+      display: renderer.display,
+      greenSwap: renderer.greenSwap,
+      WINOutside: renderer.WINOutside,
+      lastUnrenderedLine: renderer.lastUnrenderedLine,
+      queuedScanLines: renderer.queuedScanLines,
+      totalLinesPassed: renderer.totalLinesPassed,
+      backdrop: renderer.backdrop,
+      paletteRAM: Array.from(renderer.paletteRAM as Uint8Array),
+      VRAM: Array.from(renderer.VRAM as Uint8Array),
+      OAMRAM: Array.from(renderer.objRenderer.OAMRAM as Uint8Array),
+      bgs,
+      bgAffines,
+      bgMatrices,
+      frameSelect: renderer.bg2FrameBufferRenderer.frameSelect,
+      colorEffects
     },
 
     dma: {
@@ -456,21 +516,110 @@ function importGbaState(iodine: any, state: any) {
   io.gfxState.currentScanLine = state.gfxState.currentScanLine;
   io.gfxState.LCDTicks = state.gfxState.LCDTicks;
 
-  // GfxRenderer
-  io.gfxRenderer.renderer.displayControl = state.gfxRenderer.displayControl;
-  io.gfxRenderer.renderer.display = state.gfxRenderer.display;
-  io.gfxRenderer.renderer.greenSwap = state.gfxRenderer.greenSwap;
-  io.gfxRenderer.renderer.WINOutside = state.gfxRenderer.WINOutside;
-  io.gfxRenderer.renderer.lastUnrenderedLine = state.gfxRenderer.lastUnrenderedLine;
-  io.gfxRenderer.renderer.queuedScanLines = state.gfxRenderer.queuedScanLines;
-  io.gfxRenderer.renderer.totalLinesPassed = state.gfxRenderer.totalLinesPassed;
-  io.gfxRenderer.renderer.backdrop = state.gfxRenderer.backdrop;
-  io.gfxRenderer.renderer.paletteRAM.set(state.gfxRenderer.paletteRAM);
-  io.gfxRenderer.renderer.VRAM.set(state.gfxRenderer.VRAM);
-  io.gfxRenderer.renderer.palette256.set(state.gfxRenderer.palette256);
-  io.gfxRenderer.renderer.paletteOBJ256.set(state.gfxRenderer.paletteOBJ256);
-  io.gfxRenderer.renderer.palette16.set(state.gfxRenderer.palette16);
-  io.gfxRenderer.renderer.paletteOBJ16.set(state.gfxRenderer.paletteOBJ16);
+  // Graphics Renderer (Base values)
+  const renderer = io.gfxRenderer.renderer;
+  renderer.displayControl = state.gfxRenderer.displayControl;
+  renderer.display = state.gfxRenderer.display;
+  renderer.greenSwap = state.gfxRenderer.greenSwap;
+  renderer.WINOutside = state.gfxRenderer.WINOutside;
+  renderer.lastUnrenderedLine = state.gfxRenderer.lastUnrenderedLine;
+  renderer.queuedScanLines = state.gfxRenderer.queuedScanLines;
+  renderer.totalLinesPassed = state.gfxRenderer.totalLinesPassed;
+  renderer.backdrop = state.gfxRenderer.backdrop;
+
+  // Restore VRAM
+  renderer.VRAM.set(state.gfxRenderer.VRAM);
+
+  // Restore Palette RAM and rebuild lookup caches
+  renderer.paletteRAM.set(state.gfxRenderer.paletteRAM);
+  const palBytes = renderer.paletteRAM;
+  for (let i = 0; i < 512; i++) {
+    const val = palBytes[i << 1] | (palBytes[(i << 1) | 1] << 8);
+    renderer.writePalette16(i, val);
+  }
+
+  // Restore OAM RAM and rebuild lookup table/matrices
+  if (state.gfxRenderer.OAMRAM) {
+    renderer.objRenderer.OAMRAM.set(state.gfxRenderer.OAMRAM);
+    const oamBytes = renderer.objRenderer.OAMRAM;
+    for (let i = 0; i < 512; i++) {
+      const val = oamBytes[i << 1] | (oamBytes[(i << 1) | 1] << 8);
+      renderer.objRenderer.writeOAM16(i, val);
+    }
+  }
+
+  // Restore Text BG Renderers
+  if (state.gfxRenderer.bgs) {
+    const bgNames = ["bg0Renderer", "bg1Renderer", "bg2TextRenderer", "bg3TextRenderer"];
+    state.gfxRenderer.bgs.forEach((bgState: any, index: number) => {
+      const r = renderer[bgNames[index]];
+      r.BGXCoord = bgState.BGXCoord;
+      r.BGYCoord = bgState.BGYCoord;
+      r.do256 = bgState.do256;
+      r.doMosaic = bgState.doMosaic;
+      r.tileMode = bgState.tileMode;
+      r.priorityFlag = bgState.priorityFlag;
+      r.BGScreenBaseBlock = bgState.BGScreenBaseBlock;
+      r.BGCharacterBaseBlock = bgState.BGCharacterBaseBlock;
+    });
+  }
+
+  // Restore Affine BG Renderers
+  if (state.gfxRenderer.bgAffines) {
+    const affineNames = ["bgAffineRenderer0", "bgAffineRenderer1"];
+    state.gfxRenderer.bgAffines.forEach((bgState: any, index: number) => {
+      const r = renderer[affineNames[index]];
+      r.BGdx = bgState.BGdx;
+      r.BGdmx = bgState.BGdmx;
+      r.BGdy = bgState.BGdy;
+      r.BGdmy = bgState.BGdmy;
+      r.BGReferenceX = bgState.BGReferenceX;
+      r.BGReferenceY = bgState.BGReferenceY;
+      r.pb = bgState.pb;
+      r.pd = bgState.pd;
+      r.doMosaic = bgState.doMosaic;
+      r.priorityFlag = bgState.priorityFlag;
+    });
+  }
+
+  // Restore BG Matrices
+  if (state.gfxRenderer.bgMatrices) {
+    const matrixNames = ["bg2MatrixRenderer", "bg3MatrixRenderer"];
+    state.gfxRenderer.bgMatrices.forEach((bgState: any, index: number) => {
+      const r = renderer[matrixNames[index]];
+      r.BGScreenBaseBlock = bgState.BGScreenBaseBlock;
+      r.BGCharacterBaseBlock = bgState.BGCharacterBaseBlock;
+      r.mapSize = bgState.mapSize;
+      r.mapSizeComparer = bgState.mapSizeComparer;
+      r.displayOverflowProcess(bgState.BGDisplayOverflow);
+    });
+  }
+
+  // Restore BG2 FrameBuffer
+  if (state.gfxRenderer.frameSelect !== undefined) {
+    renderer.bg2FrameBufferRenderer.frameSelect = state.gfxRenderer.frameSelect;
+  }
+
+  // Restore Color Effects
+  if (state.gfxRenderer.colorEffects) {
+    const s = state.gfxRenderer.colorEffects;
+    const r = renderer.colorEffectsRenderer;
+    r.effectsTarget1 = s.effectsTarget1;
+    r.colorEffectsType = s.colorEffectsType;
+    r.effectsTarget2 = s.effectsTarget2;
+    if (typeof r.alphaBlendAmountTarget1 === "number") {
+      r.alphaBlendAmountTarget1 = s.alphaBlendAmountTarget1;
+      r.alphaBlendAmountTarget2 = s.alphaBlendAmountTarget2;
+      r.brightnessEffectAmount = s.brightnessEffectAmount;
+    } else if (typeof (window as any).SIMD !== "undefined") {
+      // SIMD fallback
+      const simd = (window as any).SIMD;
+      r.alphaBlendAmountTarget1 = simd.Int32x4.splat(s.alphaBlendAmountTarget1);
+      r.alphaBlendAmountTarget2 = simd.Int32x4.splat(s.alphaBlendAmountTarget2);
+      r.brightnessEffectAmount = simd.Int32x4.splat(s.brightnessEffectAmount);
+      r.brightnessEffectAmountReverse = simd.Int32x4.splat(0x10 - s.brightnessEffectAmount);
+    }
+  }
 
   // DMAs
   io.dma.currentMatch = state.dma.currentMatch;
@@ -523,8 +672,9 @@ function importGbaState(iodine: any, state: any) {
     }
   }
 
-  // Force renderer preprocess and event scheduling update
-  io.gfxRenderer.renderer.compositorPreprocess();
+  // Force mode selection, compositor preprocess, rendering check and event update
+  renderer.frameBufferModePreprocess(state.gfxRenderer.displayControl);
+  renderer.compositorPreprocess();
   io.gfxState.isRenderingCheckPreprocess();
   io.updateCoreEventTime();
 }

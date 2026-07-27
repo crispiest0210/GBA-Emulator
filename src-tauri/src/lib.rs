@@ -79,21 +79,25 @@ struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        let mut backend = BackendState {
+            roms: Vec::new(),
+            emulator: EmulatorSession {
+                status: EmulatorStatus::Stopped,
+                loaded_rom_id: None,
+                loaded_rom_title: None,
+                fps_target: 60,
+                audio_enabled: true,
+                fast_forward: false,
+            },
+            saves: Vec::new(),
+            next_rom_id: 1,
+            next_save_id: 1,
+        };
+
+        scan_library(&mut backend);
+
         Self {
-            backend: Mutex::new(BackendState {
-                roms: Vec::new(),
-                emulator: EmulatorSession {
-                    status: EmulatorStatus::Stopped,
-                    loaded_rom_id: None,
-                    loaded_rom_title: None,
-                    fps_target: 60,
-                    audio_enabled: true,
-                    fast_forward: false,
-                },
-                saves: Vec::new(),
-                next_rom_id: 1,
-                next_save_id: 1,
-            }),
+            backend: Mutex::new(backend),
         }
     }
 }
@@ -140,6 +144,113 @@ fn derive_file_name(path: &str) -> String {
         .to_string()
 }
 
+fn scan_library(backend: &mut BackendState) {
+    // 1. Ensure "roms" directory exists
+    let roms_dir = Path::new("roms");
+    if !roms_dir.exists() {
+        let _ = fs::create_dir_all(roms_dir);
+    }
+
+    // 2. Scan "roms" directory
+    if let Ok(entries) = fs::read_dir(roms_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("gba")) {
+                if let Some(file_path_str) = path.to_str() {
+                    // Check if already in list
+                    if !backend.roms.iter().any(|rom| rom.file_path == file_path_str) {
+                        let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        let rom_id = format!("rom-{}", backend.next_rom_id);
+                        let title = derive_rom_title(file_path_str);
+                        let file_name = derive_file_name(file_path_str);
+                        
+                        backend.roms.push(RomMetadata {
+                            id: rom_id,
+                            title,
+                            file_name,
+                            file_path: file_path_str.to_string(),
+                            size_bytes,
+                            favorite: false,
+                            last_played_at: None,
+                        });
+                        backend.next_rom_id += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Ensure "saves" directory exists
+    let saves_dir = Path::new("saves");
+    if !saves_dir.exists() {
+        let _ = fs::create_dir_all(saves_dir);
+    }
+
+    // 4. Scan "saves" directory
+    if let Ok(rom_dirs) = fs::read_dir(saves_dir) {
+        for rom_dir_entry in rom_dirs.flatten() {
+            let rom_dir_path = rom_dir_entry.path();
+            if rom_dir_path.is_dir() {
+                if let Some(rom_id) = rom_dir_path.file_name().and_then(|name| name.to_str()) {
+                    // This is a ROM ID directory!
+                    if let Ok(save_entries) = fs::read_dir(&rom_dir_path) {
+                        for save_entry in save_entries.flatten() {
+                            let save_path = save_entry.path();
+                            if save_path.is_file() && save_path.extension().map_or(false, |ext| ext == "state") {
+                                if let Some(save_file_name) = save_path.file_name().and_then(|name| name.to_str()) {
+                                    let save_id = save_path
+                                        .file_stem()
+                                        .and_then(|stem| stem.to_str())
+                                        .unwrap_or(save_file_name)
+                                        .to_string();
+                                    
+                                    let file_path = save_path.to_string_lossy().to_string();
+                                    
+                                    // Parse next_save_id if it's "save-X"
+                                    if save_id.starts_with("save-") {
+                                        if let Ok(num) = save_id["save-".len()..].parse::<u64>() {
+                                            if num >= backend.next_save_id {
+                                                backend.next_save_id = num + 1;
+                                            }
+                                        }
+                                    }
+
+                                    let rom_title = backend
+                                        .rom_title_for(rom_id)
+                                        .unwrap_or_else(|| "Unknown ROM".to_string());
+
+                                    let created_at = save_entry
+                                        .metadata()
+                                        .and_then(|m| m.modified())
+                                        .map(|t| {
+                                            t.duration_since(UNIX_EPOCH)
+                                                .map(|d| d.as_secs())
+                                                .unwrap_or_else(|_| current_timestamp())
+                                        })
+                                        .unwrap_or_else(|_| current_timestamp());
+
+                                    // Avoid duplicates
+                                    if !backend.saves.iter().any(|s| s.id == save_id) {
+                                        backend.saves.push(SaveEntry {
+                                            id: save_id,
+                                            rom_id: rom_id.to_string(),
+                                            rom_title,
+                                            label: format!("Save Point ({})", rom_id),
+                                            kind: SaveKind::SaveState,
+                                            file_path,
+                                            created_at,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn is_supported_rom_file(path: &str) -> bool {
     Path::new(path)
         .extension()
@@ -178,16 +289,32 @@ fn add_rom(file_path: String, state: State<'_, AppState>) -> Result<RomMetadata,
         return Err("ROM path must point to a file".to_string());
     }
 
-    if backend.roms.iter().any(|rom| rom.file_path == file_path) {
+    // Ensure local "roms" directory exists
+    let roms_dir = Path::new("roms");
+    if !roms_dir.exists() {
+        fs::create_dir_all(roms_dir).map_err(|e| format!("Failed to create roms library folder: {}", e))?;
+    }
+
+    // Copy to "roms" folder
+    let file_name = derive_file_name(&file_path);
+    let dest_path = roms_dir.join(&file_name);
+    
+    if fs::canonicalize(&file_path).ok() != fs::canonicalize(&dest_path).ok() {
+        fs::copy(&file_path, &dest_path).map_err(|e| format!("Failed to copy ROM to library: {}", e))?;
+    }
+
+    let dest_path_str = dest_path.to_string_lossy().to_string();
+
+    if backend.roms.iter().any(|rom| rom.file_path == dest_path_str) {
         return Err("ROM already exists in the library".to_string());
     }
 
     let rom = RomMetadata {
         id: format!("rom-{}", backend.next_rom_id),
-        title: derive_rom_title(&file_path),
-        file_name: derive_file_name(&file_path),
+        title: derive_rom_title(&dest_path_str),
+        file_name: derive_file_name(&dest_path_str),
         size_bytes: metadata.len(),
-        file_path,
+        file_path: dest_path_str,
         favorite: false,
         last_played_at: None,
     };

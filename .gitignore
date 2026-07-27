@@ -23,6 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# Emulator saves
+# Emulator saves and ROMs
 saves/
 src-tauri/saves/
+roms/
+src-tauri/roms/
