@@ -6,6 +6,7 @@
 - Frontend: React 19.1.0 + TypeScript 5.8.3 + Vite 7.0.4
 - Backend: Tauri v2 + Rust 2021
 - Tauri identifier: `com.gba.emulator`
+- Status (2026-11-24): inactive since 2026-07-27 and superseded by the Alpha-Emulator repo (clean-room Rust rewrite). See README "Status & Next Steps".
 
 ## Important files
 
@@ -20,28 +21,30 @@
 
 ## Implemented backend commands
 
-The Rust backend exposes 14 commands through `tauri::generate_handler!`:
+The Rust backend exposes 16 commands through `tauri::generate_handler!`:
 
 1. `get_dashboard_state`
 2. `list_roms`
 3. `add_rom`
 4. `remove_rom`
-5. `get_emulator_state`
-6. `read_rom_file`
-7. `load_rom`
-8. `pause_emulator`
-9. `resume_emulator`
-10. `stop_emulator`
-11. `save_state`
-12. `read_save_file`
-13. `load_state`
-14. `list_saves`
+5. `remove_save`
+6. `get_emulator_state`
+7. `read_rom_file`
+8. `load_rom`
+9. `pause_emulator`
+10. `resume_emulator`
+11. `stop_emulator`
+12. `save_state`
+13. `read_save_file`
+14. `load_state`
+15. `list_saves`
+16. `log_message`
 
 ## Current behavior notes
 
-- Backend state is in-memory only and resets on app restart.
+- ROM files and save checkpoints persist under the OS app-data dir for `com.gba.emulator`; the ROM and save lists are rebuilt by scanning `roms/` and `saves/` on startup. Emulator session state is in-memory only.
 - Branding is now aligned with the project name in the active Tauri metadata and Rust package metadata.
-- Adding a ROM stores metadata derived from the supplied local file path.
+- Adding a ROM copies the `.gba` file into the app-data `roms/` folder and derives metadata from the copied path.
 - ROM import supports the Tauri dialog file picker and drag-and-drop `.gba` files.
 - Loading a ROM marks the session as `Running` and updates `lastPlayedAt`.
 - Loading a save sets the session to `Paused` with the save's ROM loaded.
@@ -50,6 +53,13 @@ The Rust backend exposes 14 commands through `tauri::generate_handler!`:
 - Frontend keybind, volume, and mute preferences are persisted in `localStorage`.
 
 ## Verified commands
+
+Re-checked 2026-11-24 on macOS (Node 22.6.0, cargo 1.97.1):
+
+- `npm run build:frontend`: passes (Vite wants Node 20.19+ or 22.12+ and warns otherwise)
+- `cargo build` / `cargo test` in `src-tauri/`: pass, 0 warnings, 0 tests
+
+Listed previously but not re-verified in that audit:
 
 - Install dependencies: `npm install`
 - Run Tauri dev app: `npm run dev`
@@ -88,7 +98,7 @@ The Rust backend exposes 14 commands through `tauri::generate_handler!`:
 - Added a `log_message` Tauri command bridge to automatically forward all frontend JavaScript console logs, warnings, and unhandled errors straight to the desktop terminal for real-time debugging.
 - Added `**/saves/**` to the watch ignore list in `vite.config.ts` to prevent Vite from triggering full browser reloads during gameplay save-states.
 - Fixed all TypeScript compilation warnings and errors including unused methods and type casting on timestamps.
-- Designed and implemented true snapshot-based save state serialization (`exportGbaState` / `importGbaState`) on the `save-state-debugging` branch, capturing the full CPU, memory (WRAM/IRAM), GfxState, timers, DMAs, and cartridge-chip registers.
+- Designed and implemented true snapshot-based save state serialization (`exportGbaState` / `importGbaState`) (originally on a `save-state-debugging` branch, now merged into `main`), capturing the full CPU, memory (WRAM/IRAM), GfxState, timers, DMAs, and cartridge-chip registers.
 - Resolved quickload visual corruption (scrambled/corrupted tile visuals on reload) by deeply serializing all background controllers (text, affine, matrices), color effects, and windows, and rebuilding the graphics/sprite lookup caches by feeding Palette and OAM RAM byte-by-byte into their core parsing write functions on load.
 - Designed and implemented a self-bootstrapping, persistent local GBA library: on startup, the Rust backend automatically scans the local `roms/` directory to load available ROMs, and scans the `saves/` directory to rebuild all available save-states.
 - Configured ROM import to automatically copy `.gba` ROMs directly into the local `roms/` folder upon drag-and-drop or picker import, guaranteeing persistent local availability across restarts.
@@ -107,14 +117,20 @@ Current architecture highlights:
    - The frontend consumes those bytes directly for emulator startup.
 
 3. **Persistence Model**
-   - Save checkpoints persist to disk.
-   - ROM library metadata and emulator session metadata remain in-memory only.
+   - ROM files and save checkpoints persist to disk and are re-scanned on startup.
+   - There is no persisted library index; emulator session metadata is in-memory only.
 
 4. **Linux Compatibility Strategy**
    - The repository includes local `pkgconfig/` and `lib/` compatibility shims.
    - `run.sh` is the preferred Linux entry point because it exports the required env vars automatically.
 
+## Repository hygiene warning
+
+- The public repo tracks a commercial ROM (`roms/Pokemon - Emerald Version (USA, Europe).gba`, 16 MB) and `public/gba_bios.bin`, which matches the official Nintendo BIOS SHA-1. Do not add more ROMs or BIOS files; see README next steps for removal.
+
 ## Next potential steps
+
+- See README "Status & Next Steps" for the prioritized list. Older notes:
 
 - Add automated test suites for Rust command structures and UI behavior.
 - Implement permanent SQLite or file-backed storage for the ROM library index.

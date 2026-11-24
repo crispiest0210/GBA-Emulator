@@ -13,7 +13,7 @@ This guide documents the current development setup for the GBA Emulator desktop 
 Install these before running the app:
 
 - **Node.js**
-  - Recommended: current active LTS release compatible with Vite 7 and Tauri v2
+  - Vite 7 requires Node.js 20.19+ or 22.12+ (22.6.0 still builds but prints a warning)
 
 - **npm**
   - Bundled with Node.js
@@ -33,7 +33,7 @@ npm install
 Choose the execution workflow that matches your operating system:
 
 ### Windows, macOS, and Standard Linux (Ubuntu/Debian)
-Can set up, run, and compile the app using standard npm commands flawlessly:
+Set up, run, and compile the app using standard npm commands:
 ```bash
 # Install dependencies
 npm install
@@ -149,6 +149,8 @@ PKG_CONFIG_PATH="$PWD/pkgconfig:$PKG_CONFIG_PATH" LIBRARY_PATH="$PWD/lib:$LIBRAR
 - Confirm the compatibility files exist under `pkgconfig/` and `lib/`
 
 ## Verified commands
+
+Re-checked on 2026-11-24 (macOS): `npm run build:frontend`, `cargo build` and `cargo test` (0 tests) in `src-tauri/`. The commands below were listed earlier and were not re-run in that check.
 
 - `npm install`
 - `npm run dev`

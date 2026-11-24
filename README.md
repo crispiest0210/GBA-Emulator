@@ -4,6 +4,8 @@ A desktop Game Boy Advance emulator dashboard built with **Tauri v2**, **Rust**,
 
 The app combines a native desktop shell with a browser-based emulation core, giving you a polished UI for importing ROMs, launching gameplay, managing saves, tuning controls, and packaging the project as a desktop application.
 
+> **Status (2026-11-24): inactive, superseded.** The last commit was on 2026-07-27. This project's direction moved to [Alpha-Emulator](https://github.com/crispiest0210/Alpha-Emulator), a clean-room Rust emulator (GB/GBC/GBA/DS) whose design docs name this repo as its predecessor and reuse none of its code. See [Status & Next Steps](#status--next-steps) below.
+
 ## Overview
 
 - **Frontend**: React 19 + TypeScript + Vite
@@ -128,17 +130,29 @@ The backend exposes these commands through `tauri::generate_handler!`:
 
 ## Development Commands
 
-Choose the commands based on your operating system:
+### Prerequisites
+
+- Node.js **20.19+ or 22.12+** (Vite 7 requirement; older 22.x prints a warning)
+- npm
+- Rust toolchain (`rustup`, `cargo`)
+- Tauri v2 platform dependencies (WebKitGTK on Linux; see `SETUP.md`)
 
 ### Windows, macOS, and Standard Linux (Ubuntu/Debian)
-Can set up and run using standard commands:
 ```bash
 npm install
-npm run dev
+npm run dev        # Tauri dev window (runs `vite` on port 1420 first)
 ```
 For production compilation:
 ```bash
-npm run build
+npm run build      # tauri build: frontend build + Rust release build + installer bundles
+```
+
+Individual pieces:
+```bash
+npm run build:frontend          # tsc && vite build -> dist/
+npm run dev:frontend            # Vite dev server only (no Tauri APIs, so ROM/save calls fail)
+cargo build --manifest-path src-tauri/Cargo.toml
+cargo test  --manifest-path src-tauri/Cargo.toml
 ```
 
 ### RHEL / Rocky Linux (with bundled shims)
@@ -157,6 +171,18 @@ To clean target compilation caches:
 ./run.sh clean
 ```
 
+Note: `lib/libwebkit2gtk-4.1.so` and `lib/libjavascriptcoregtk-4.1.so` are committed as symlinks to absolute `/usr/lib64/...-4.0.so` paths, so they only resolve on a machine with that layout.
+
+### Verification (2026-11-24, macOS, Node 22.6.0, cargo 1.97.1)
+
+| Command | Result |
+| --- | --- |
+| `npm run build:frontend` | Passes (Vite warns that Node 22.6.0 is below 22.12) |
+| `cargo build` in `src-tauri/` | Passes, 0 warnings |
+| `cargo test` in `src-tauri/` | Passes, but runs 0 tests |
+| `npm run dev`, `npm run build` | Not re-verified in this audit (opens a GUI window / produces bundles) |
+| `./run.sh *`, `./setup_linux_deps.sh` | Not verified (Linux only) |
+
 ## Setup
 
 For full environment setup and platform notes, see:
@@ -165,15 +191,40 @@ For full environment setup and platform notes, see:
 
 ## Testing Status
 
-- No automated test suite is currently configured.
-- `package.json` does not define an `npm test` script.
-- There are no Rust test modules or integration tests under `src-tauri`.
+- No automated test suite exists. `package.json` has no `npm test` script.
+- `cargo test` in `src-tauri/` compiles and reports 0 tests.
+- `roms/gba-audio-test.gba` (7 KB, open-source test ROM) is committed for manual smoke testing.
 
 ## Known Constraints
 
 - The current implementation is optimized for local desktop usage rather than headless automation.
+- Emulation runs in the WebView's JavaScript (IodineGBA); Rust only handles file I/O and session metadata.
+- The app fetches `public/gba_bios.bin` on startup.
 
-## Next Recommended Improvements
+## Legal / Repository Hygiene Warning
 
-- Add automated frontend and Rust tests.
-- Continue refining emulator UX, diagnostics, and recovery flows.
+This repository is **public** on GitHub and currently tracks two files that should not be redistributed:
+
+- `roms/Pokemon - Emerald Version (USA, Europe).gba` (16 MB): a commercial Nintendo game ROM.
+- `public/gba_bios.bin` (16 KB, SHA-1 `300c20df6731a33952ded8c436f7f186d25d3492`): matches the official Nintendo GBA BIOS dump.
+
+Removing them from the working tree is not enough, because they remain in git history. See the first next steps below.
+
+## Status & Next Steps
+
+**As of 2026-11-24**
+
+- **State:** Inactive and superseded. The app builds (frontend and Rust) and, per the commit history, played games with snapshot save-states as of July 2026. Its replacement is Alpha-Emulator, a from-scratch Rust emulator that covers GBA plus GB/GBC/DS and lists this repo's features (persistent library, snapshot saves, HUD, keybinds, rewind) as product requirements it already ships.
+- **Done:** IodineGBA core integrated end to end; canvas video and Web Audio; native ROM import (picker and drag-and-drop) copied to app-data; startup auto-scan of ROMs and saves; full snapshot save-states (save/load/delete); quick save/load, fast-forward, rewind; HUD keybind remapper; frontend log forwarding to the terminal.
+- **Not done:** automated tests; a persisted ROM library index (the library is rebuilt by scanning on startup); diagnostics and recovery flows.
+- **Last activity:** 2026-07-27 (`aed1553`, "added test roms within the repo").
+
+### Next steps (prioritized)
+
+- [ ] Remove the commercial ROM and the Nintendo BIOS from the repo and from git history (for example with `git filter-repo --path "roms/Pokemon - Emerald Version (USA, Europe).gba" --path public/gba_bios.bin --invert-paths`, then force-push). Rewriting history is destructive, so coordinate with the owner first.
+- [ ] Narrow `.gitignore` so only the homebrew test ROM is allowed under `roms/` and add `*.bin` BIOS files to it; make BIOS loading user-supplied (document where to put it).
+- [ ] Decide the repo's fate: **archive it on GitHub** with a pointer to Alpha-Emulator (recommended), or keep it as a reference. Anything still worth porting is product behavior already listed in Alpha-Emulator's `docs/successor-emulator/00-INDEX-AND-ARCHITECTURE.md`; no code is meant to move.
+- [ ] If development continues instead: add Rust unit tests for `src-tauri/src/lib.rs` (ROM/save scanning, `remove_rom`/`remove_save` disk cleanup).
+- [ ] If development continues: split `src/App.tsx` (about 2,200 lines) into components and hooks, and add a frontend test runner (for example Vitest) plus an `npm test` script.
+- [ ] Replace the absolute-path symlinks in `lib/` with ones generated by `setup_linux_deps.sh` at setup time, or stop tracking them.
+- [ ] Add a LICENSE file (TBD by the owner). The vendored IodineGBA and XAudioJS keep their own upstream licenses.
